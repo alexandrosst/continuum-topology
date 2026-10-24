@@ -108,6 +108,100 @@
     refresh();
   }
 
+  // ---- what a parameter is, read-only ----
+  function typeLabel(p) {
+    var s = p.schema || {};
+    if (p['x-multiline']) return 'string, repeat the parameter';
+    if (s.type === 'array') return 'list of ' + ((s.items || {}).type || 'string') + ', comma-separated';
+    return s.type || '';
+  }
+  function enumOf(p) { var s = p.schema || {}; return s.enum || (s.items || {}).enum || null; }
+  function wrapTable(t) { var w = el('div', 'tablewrap'); w.appendChild(t); return w; }
+  function head(cols) { var tr = el('tr'); cols.forEach(function (h) { tr.appendChild(el('th', null, h)); }); var th = el('thead'); th.appendChild(tr); return th; }
+
+  function paramTable(params) {
+    var tb = el('table', 'params'); tb.appendChild(head(['Name', 'In', 'Type', 'Default', 'Description']));
+    var body = el('tbody');
+    params.forEach(function (p) {
+      var tr = el('tr'), n = el('td', 'pn');
+      n.appendChild(el('code', null, p.name));
+      if (p.required) n.appendChild(el('span', 'req', 'required'));
+      tr.appendChild(n);
+      tr.appendChild(el('td', null, p['in']));
+      tr.appendChild(el('td', null, typeLabel(p)));
+      var def = el('td'); if (p['x-default']) def.appendChild(el('code', null, p['x-default'])); else def.appendChild(el('span', 'meta', '—'));
+      tr.appendChild(def);
+      var dd = el('td'); inline(dd, p.description || '');
+      var ev = enumOf(p);
+      if (ev) { var e = el('div', 'meta', 'One of: '); ev.forEach(function (v, i) { if (i) e.appendChild(document.createTextNode(' ')); e.appendChild(el('code', null, v)); }); dd.appendChild(e); }
+      if (p['x-excludes'] && p['x-excludes'].length) dd.appendChild(el('div', 'meta', 'Cannot be combined with: ' + p['x-excludes'].join(', ') + '.'));
+      if (p['x-needs-fused']) dd.appendChild(el('div', 'meta', 'Only applies to a fused read (fused=true, or an include or promql given).'));
+      if (p.example != null && p.example !== '') { var ex = el('div', 'meta', 'Example: '); ex.appendChild(el('code', null, String(p.example))); dd.appendChild(ex); }
+      tr.appendChild(dd); body.appendChild(tr);
+    });
+    tb.appendChild(body);
+    return wrapTable(tb);
+  }
+
+  function responseTable(op) {
+    var tb = el('table', 'responses'); tb.appendChild(head(['Status', 'Meaning', 'Body']));
+    var body = el('tbody');
+    Object.keys(op.responses || {}).sort().forEach(function (code) {
+      var r = op.responses[code];
+      if (r.$ref) r = SPEC.components.responses[r.$ref.split('/').pop()] || {};
+      var tr = el('tr'), st = el('td', 'pn'), cls = code[0] === '2' ? 'ok' : code[0] === '5' ? 'bad' : 'warn';
+      st.appendChild(el('span', 'code ' + cls, code)); tr.appendChild(st);
+      var m = el('td'); inline(m, r.description || ''); tr.appendChild(m);
+      var c = el('td'), types = Object.keys(r.content || {});
+      types.forEach(function (ct) {
+        var sc = r.content[ct].schema || {}, ref = sc.$ref ? sc.$ref.split('/').pop() : '';
+        var line = el('div'); line.appendChild(el('code', null, ct));
+        if (ref && ref !== 'Error') { line.appendChild(document.createTextNode(' ')); var a = el('a', null, ref); a.href = '#schema-' + ref; line.appendChild(a); }
+        else if (ref) line.appendChild(document.createTextNode(' {"error": "…"}'));
+        c.appendChild(line);
+      });
+      tr.appendChild(c); body.appendChild(tr);
+    });
+    tb.appendChild(body);
+    return wrapTable(tb);
+  }
+
+  // A schema's fields, opened on request; the example of its answer when the description has one.
+  function schemaBox(label, ref, open) {
+    var d = el('details', 'tree-box'), s = el('summary', null, label);
+    d.appendChild(s);
+    var tree = el('div', 'tree'), done = false;
+    d.appendChild(tree);
+    function fill() { if (done) return; done = true; tools(tree); renderNode(tree, '', { $ref: '#/components/schemas/' + ref }, 0, []); }
+    d.addEventListener('toggle', function () { if (d.open) fill(); });
+    if (open) d.open = true;
+    return d;
+  }
+  function tools(tree) {
+    var bar = el('div', 'tools');
+    [['Expand all', true], ['Collapse all', false]].forEach(function (x) {
+      var b = el('button', 'ghost small', x[0]); b.type = 'button';
+      b.onclick = function () { Array.prototype.forEach.call(tree.querySelectorAll('details.node'), function (n) { n.open = x[1]; }); };
+      bar.appendChild(b);
+    });
+    tree.appendChild(bar);
+  }
+  function exampleOf(ref) {
+    var sc = resolve({ $ref: '#/components/schemas/' + ref });
+    return sc && sc.example !== undefined ? sc.example : null;
+  }
+
+  // ---- copy ----
+  function copyText(text, onDone) {
+    function fallback() {
+      var t = el('textarea'); t.value = text; t.setAttribute('readonly', ''); t.className = 'sr'; document.body.appendChild(t); t.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { /* not allowed here */ }
+      t.remove(); onDone(ok);
+    }
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function () { onDone(true); }, fallback);
+    else fallback();
+  }
+
   // ---- one route ----
   function renderOp(path, method, op) {
     var d = el('details', 'op'); d.id = 'op-' + op.operationId;
@@ -120,64 +214,92 @@
     var link = el('a', 'permalink', '# link'); link.href = '#' + d.id; link.title = 'A link to this route'; body.appendChild(link);
     if (op.description) para(body, op.description);
 
-    var inputs = [];
     var params = op.parameters || [];
+    if (params.length) { body.appendChild(el('h3', null, 'Parameters')); body.appendChild(paramTable(params)); }
+    var bodyRef = null;
+    if (op.requestBody) {
+      bodyRef = op.requestBody.content['application/json'].schema.$ref.split('/').pop();
+      body.appendChild(el('h3', null, 'Request body (JSON)'));
+      body.appendChild(schemaBox('Fields of ' + bodyRef, bodyRef, false));
+    }
+    body.appendChild(el('h3', null, 'Responses'));
+    body.appendChild(responseTable(op));
+    var okRef = ((((op.responses || {})['200'] || {}).content || {})['application/json'] || {}).schema;
+    okRef = okRef && okRef.$ref ? okRef.$ref.split('/').pop() : null;
+    if (okRef) {
+      body.appendChild(schemaBox('Fields of the answer (' + okRef + ')', okRef, false));
+      var ex = exampleOf(okRef);
+      if (ex !== null) { body.appendChild(el('h3', null, 'Example answer')); body.appendChild(el('pre', 'out', JSON.stringify(ex, null, 2))); }
+    }
+
+    // ---- try it ----
+    var inputs = [], ta = null;
+    var tryit = el('details', 'try'), tsum = el('summary', null, 'Try it');
+    tryit.appendChild(tsum);
+    var tbody = el('div', 'tbody'); tryit.appendChild(tbody);
+    tbody.appendChild(el('p', 'meta', 'Sends the request from this page with the access token above, or with your signed-in session when there is none. This route only reads.'));
     if (params.length) {
-      var tb = el('table'), head = el('tr');
-      ['Parameter', 'Value', 'Description'].forEach(function (h) { head.appendChild(el('th', null, h)); });
-      tb.appendChild(head);
+      var tb = el('table'), hd = el('tr');
+      ['Parameter', 'Value'].forEach(function (h) { hd.appendChild(el('th', null, h)); });
+      tb.appendChild(hd);
       params.forEach(function (p) {
-        var tr = el('tr'), n = el('td', 'pn'), s = p.schema || {};
+        var tr = el('tr'), n = el('td', 'pn');
         n.appendChild(el('code', null, p.name));
         if (p.required) n.appendChild(el('span', 'err', ' *'));
         tr.appendChild(n);
         var inp = makeInput(p), td = el('td', 'pi'); td.appendChild(inp); tr.appendChild(td);
-        var dd = el('td'); inline(dd, p.description || '');
-        var meta = [(s.type === 'array' ? 'list of ' + ((s.items || {}).type || 'string') : s.type)];
-        if (p['x-default']) meta.push('default ' + p['x-default']);
-        dd.appendChild(el('div', 'meta', meta.join(' · ')));
-        tr.appendChild(dd); tb.appendChild(tr);
+        tb.appendChild(tr);
         inputs.push({ p: p, inp: inp, tr: tr });
       });
-      body.appendChild(tb);
+      tbody.appendChild(tb);
       greyOut(inputs);
     }
-    var ta = null;
     if (op.requestBody) {
-      body.appendChild(el('h3', null, 'Request body (JSON)'));
-      ta = el('textarea'); ta.spellcheck = false;
-      var ex = op.requestBody.content['application/json'].example;
-      ta.value = ex ? JSON.stringify(ex, null, 2) : '{}';
-      body.appendChild(ta);
+      tbody.appendChild(el('h3', null, 'Request body (JSON)'));
+      ta = el('textarea'); ta.spellcheck = false; ta.setAttribute('aria-label', 'Request body');
+      var bex = op.requestBody.content['application/json'].example;
+      ta.value = bex ? JSON.stringify(bex, null, 2) : '{}';
+      tbody.appendChild(ta);
     }
-    var acts = el('div', 'actions'), go = el('button', null, 'Send'), curl = el('button', 'ghost', 'Copy as curl');
-    var stat = el('span', 'status'); acts.appendChild(go); acts.appendChild(curl); acts.appendChild(stat); body.appendChild(acts);
-    var out = el('div'); body.appendChild(out);
+    var acts = el('div', 'actions'), go = el('button', null, 'Send'), curlBtn = el('button', 'ghost', 'Copy as curl');
+    go.type = curlBtn.type = 'button';
+    var stat = el('span', 'status'); stat.setAttribute('role', 'status');
+    acts.appendChild(go); acts.appendChild(curlBtn); acts.appendChild(stat); tbody.appendChild(acts);
+    var curlPre = el('pre', 'out curl'); curlPre.setAttribute('aria-label', 'The request as curl'); tbody.appendChild(curlPre);
+    var out = el('div'); tbody.appendChild(out);
+    body.appendChild(tryit);
 
-    function build() {
+    // strict: a path parameter that is empty is an error (Send); otherwise it stays as {name}, so the command can be read and copied before it is filled in.
+    function build(strict) {
       var url = path, qs = [];
       for (var i = 0; i < inputs.length; i++) {
         var v = inputs[i].inp.get(), p = inputs[i].p;
-        if (p['in'] === 'path') { if (!v) throw new Error(p.name + ' is required'); url = url.replace('{' + p.name + '}', encodeURIComponent(v)); }
+        if (p['in'] === 'path') { if (!v) { if (strict) throw new Error(p.name + ' is required'); continue; } url = url.replace('{' + p.name + '}', encodeURIComponent(v)); }
         else if (p['x-multiline']) v.split('\n').forEach(function (line) { if (line.trim()) qs.push(encodeURIComponent(p.name) + '=' + encodeURIComponent(line.trim())); });
         else if (v !== '') qs.push(encodeURIComponent(p.name) + '=' + encodeURIComponent(v));
       }
       return { url: url + (qs.length ? '?' + qs.join('&') : ''), qs: qs };
     }
     function wantsStream() { return inputs.some(function (x) { return x.p.name === 'stream' && x.inp.get() === 'true'; }); }
-
-    curl.onclick = function () {
-      try {
-        var b = build(), c = "curl -sS" + (wantsStream() ? " -N" : "") + (method === 'post' ? " -X POST -H 'Content-Type: application/json' -d '" + (ta ? ta.value.replace(/'/g, "'\\''") : '{}') + "'" : '') +
-          ' -H "Authorization: Bearer $FUSION_TOKEN" \'' + (location.origin + b.url).replace(/'/g, "'\\''") + "'";
-        if (navigator.clipboard) navigator.clipboard.writeText(c).then(function () { stat.className = 'status'; stat.textContent = 'curl copied'; });
-        else { out.textContent = ''; var pre = el('pre', 'out', c); out.appendChild(pre); }
-      } catch (e) { stat.className = 'status bad'; stat.textContent = e.message; }
+    function compact(t) { try { return JSON.stringify(JSON.parse(t)); } catch (e) { return t; } }
+    // The token is never written into the command: it is read from $FUSION_TOKEN, wherever the command is pasted.
+    function curlCommand() {
+      var b = build(false), q = function (x) { return "'" + x.replace(/'/g, "'\\''") + "'"; };
+      return 'curl -sS' + (wantsStream() ? ' -N' : '') + (method === 'post' ? ' -X POST -H ' + q('Content-Type: application/json') + ' -d ' + q(ta ? compact(ta.value) : '{}') : '') +
+        ' -H "Authorization: Bearer $FUSION_TOKEN" ' + q(location.origin + b.url);
+    }
+    function showCurl() { curlPre.textContent = curlCommand(); }
+    tryit.addEventListener('input', showCurl); tryit.addEventListener('change', showCurl); showCurl();
+    curlBtn.onclick = function () {
+      copyText(curlCommand(), function (ok) {
+        stat.className = 'status' + (ok ? '' : ' bad'); stat.textContent = ok ? 'curl copied' : 'could not copy: select the command below';
+        if (!ok) { var r = document.createRange(); r.selectNodeContents(curlPre); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+      });
     };
 
     go.onclick = function () {
       var b; out.textContent = '';
-      try { b = build(); } catch (e) { stat.className = 'status bad'; stat.textContent = e.message; return; }
+      try { b = build(true); } catch (e) { stat.className = 'status bad'; stat.textContent = e.message; return; }
       var init = { method: method.toUpperCase(), headers: authHeaders({ Accept: wantsStream() ? 'application/x-ndjson' : 'application/json' }), credentials: 'same-origin' };
       if (ta) {
         try { JSON.parse(ta.value); } catch (e) { stat.className = 'status bad'; stat.textContent = 'the body is not valid JSON'; return; }
@@ -253,26 +375,28 @@
     if (s.$ref) return s.$ref.split('/').pop();
     if (s.type === 'array') return '[' + typeName(s.items || {}) + ']';
     if (s.enum) return s.enum.join(' | ');
+    if (s.allOf && s.allOf.length === 1 && s.allOf[0].$ref) return typeName(s.allOf[0]);
+    if (s.oneOf) return s.oneOf.map(typeName).join(' | ');
     return s.type || (s.allOf ? 'object' : '');
   }
-  function renderNode(parent, name, s, depth, stack) {
-    var node = el('div', 'node'), r = resolve(s);
-    var head = el('div');
-    if (name) head.appendChild(el('span', 'k', name));
-    head.appendChild(el('span', 'ty', typeName(s)));
-    if (r.description || s.description) { var d = el('span', 'meta'); d.textContent = ' — ' + (s.description || r.description); head.appendChild(d); }
-    node.appendChild(head);
+  function renderNode(parent, name, s, depth, stack, required) {
+    var r = resolve(s), ref = s.$ref ? s.$ref : (s.items && s.items.$ref) || null;
+    var props = {}, subs, target = r.type === 'array' ? resolve(r.items || {}) : r, reqd = {};
+    var canOpen = !(depth > 6 || (ref && stack.indexOf(ref) >= 0)) && !(r.type === 'array' && target.type !== 'object' && !target.allOf);
+    subs = target.allOf ? target.allOf.map(resolve) : [target];
+    if (canOpen) subs.forEach(function (x) { Object.assign(props, x.properties || {}); (x.required || []).forEach(function (k) { reqd[k] = true; }); });
+    var keys = canOpen ? Object.keys(props) : [];
+    var node = keys.length ? el('details', 'node') : el('div', 'node'), hd = keys.length ? el('summary') : node;
+    if (keys.length) { node.appendChild(hd); if (depth < 1) node.open = true; }
+    if (name) hd.appendChild(el('span', 'k', name));
+    hd.appendChild(el('span', 'ty', typeName(s)));
+    if (required) hd.appendChild(el('span', 'req', 'required'));
+    var fmt = r.format || (r.items && r.items.format);
+    if (fmt) hd.appendChild(el('span', 'meta', ' ' + fmt));
+    if (r.description || s.description) { var d = el('span', 'meta', ' — '); inline(d, s.description || r.description); hd.appendChild(d); }
     parent.appendChild(node);
-    var ref = s.$ref ? s.$ref : (s.items && s.items.$ref) || null;
-    if (depth > 6 || (ref && stack.indexOf(ref) >= 0)) return;
-    var props = {}, subs = [r];
-    if (r.allOf) subs = r.allOf.map(resolve);
-    var target = r.type === 'array' ? resolve(r.items || {}) : r;
-    if (r.type === 'array' && target.type !== 'object' && !target.allOf) return;
-    if (target.allOf) subs = target.allOf.map(resolve); else subs = [target];
-    subs.forEach(function (x) { Object.assign(props, x.properties || {}); });
     var next = ref ? stack.concat([ref]) : stack;
-    Object.keys(props).forEach(function (k) { renderNode(node, k, props[k], depth + 1, next); });
+    keys.forEach(function (k) { renderNode(node, k, props[k], depth + 1, next, !!reqd[k]); });
   }
   function renderSchemas() {
     var list = $('schemaList');
@@ -282,7 +406,7 @@
       d.appendChild(el('summary', null, n));
       var tree = el('div', 'tree'); d.appendChild(tree);
       var done = false;
-      d.addEventListener('toggle', function () { if (d.open && !done) { done = true; renderNode(tree, '', { $ref: '#/components/schemas/' + n }, 0, []); } });
+      d.addEventListener('toggle', function () { if (d.open && !done) { done = true; tools(tree); renderNode(tree, '', { $ref: '#/components/schemas/' + n }, 0, []); } });
       list.appendChild(d);
     });
   }

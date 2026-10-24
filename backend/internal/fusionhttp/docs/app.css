@@ -103,7 +103,26 @@ pre.out{background:var(--recess);border-radius:8px;padding:10px 12px;max-height:
 .schema>summary:hover{background:var(--raised)}
 .schema .tree{padding:0 14px 12px}
 .node{margin:2px 0 2px 14px;border-left:1px solid var(--line);padding-left:10px}
-.node .k{font-weight:600}.node .ty{color:var(--muted);margin-left:6px}
+details.node>summary{cursor:pointer;list-style:none;border-radius:4px}
+details.node>summary::-webkit-details-marker{display:none}
+details.node>summary::before{content:"+";display:inline-block;width:14px;margin-left:-3px;color:var(--muted);font-weight:700}
+details.node[open]>summary::before{content:"\2212"}
+details.node>summary:hover{background:var(--raised)}
+.node .k{font-weight:600;font-family:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;font-size:13px}.node .ty{color:var(--info);margin-left:8px;font-size:12.5px}
+.req{margin-left:8px;font-size:11px;font-weight:600;color:var(--warn);border:1px solid currentColor;border-radius:4px;padding:0 4px;background:var(--warn-soft)}
+.tablewrap{overflow-x:auto}
+.params td,.responses td{font-size:13.5px}
+td .code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-weight:700}.code.ok{color:var(--ok)}.code.warn{color:var(--warn)}.code.bad{color:var(--bad)}
+td.pn .req{display:block;margin:2px 0 0;width:max-content}
+.tree-box{margin:10px 0}
+.tree-box>summary,.try>summary{cursor:pointer;font-weight:600;padding:4px 0;color:var(--ink-2)}
+.tree-box>summary:hover,.try>summary:hover{color:var(--ink)}
+.tree-box>.tree{padding:6px 0 4px 4px}
+.tools{display:flex;gap:6px;margin:0 0 6px}
+button.small{padding:2px 10px;font-size:12px}
+.try{margin-top:14px;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:2px 12px}
+.try[open]{padding-bottom:12px}
+pre.curl{margin-top:8px;font-size:12.5px}
 .err{color:var(--bad)}
 tr.off td.pn,tr.off td.pi,tr.off td:last-child{opacity:.45}
 tr.off input,tr.off select,tr.off textarea{cursor:not-allowed}
@@ -114,9 +133,10 @@ nav{position:static;flex:none;width:100%;max-height:none;overflow:visible;paddin
 nav .groups{max-height:45vh;overflow:auto}
 header{padding:10px 12px;position:static}#auth{width:100%}#token{width:100%;flex:1 1 100%}
 html{scroll-padding-top:12px}
-table,tbody,tr,td{display:block;width:100%}tr:first-child{display:none}
-tr{padding:8px 0;border-bottom:1px solid var(--line)}td{border:0;padding:2px 0}td.pn,td.pi{width:100%;min-width:0}
+.try table,.try tbody,.try tr,.try td{display:block;width:100%}.try tr:first-child{display:none}
+.try tr{padding:8px 0;border-bottom:1px solid var(--line)}.try td{border:0;padding:2px 0}.try td.pn,.try td.pi{width:100%;min-width:0}
 .op>summary{padding:10px}.body{padding:2px 10px 14px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 [hidden]{display:none!important}
+.responses td:last-child div{white-space:nowrap}
