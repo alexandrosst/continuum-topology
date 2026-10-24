@@ -483,6 +483,37 @@ func TestChangesIncludeTheTrafficAndTheApplicationsOfTheTrace(t *testing.T) {
 	}
 }
 
+// An application's events name the services it gained and lost, wherever they are. A token limited to a cluster is not told of
+// the application's events either: the application may hold services of clusters it cannot see.
+func TestAClusterLimitedTokenDoesNotReadAnApplicationsOwnEvents(t *testing.T) {
+	f := newFake(t)
+	f.tempo = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, tempoTraceOnNode()) }
+	v := testView()
+	v.Services[0].Applications, v.Services[0].AppIDs = []string{"Shop"}, []string{"app-shop"}
+	at := time.Date(2026, 10, 5, 11, 20, 0, 0, time.UTC)
+	ex := &fakeExtras{view: v, events: []ChangeEvent{
+		{Time: at, Kind: "application-membership", TargetKind: "application", TargetID: "app-shop", Name: "Shop", Cluster: "cl-1", Detail: "1 service(s) added: s-elsewhere"},
+	}}
+	for name, scope := range map[string]Scope{
+		"a cluster":   {Signals: Signals, Clusters: []string{"cl-1"}},
+		"a namespace": {Signals: Signals, Namespaces: []string{"shop"}},
+	} {
+		got, err := f.client().FuseTrace(context.Background(), scope, traceHex, FuseOptions{Topology: true, Changes: true, Extras: ex})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range got.Changes {
+			if c.TargetKind == "application" {
+				t.Errorf("a token limited to %s was given the application's own event: %+v", name, c)
+			}
+		}
+	}
+	got, _ := f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Topology: true, Changes: true, Extras: ex})
+	if len(got.Changes) != 1 {
+		t.Errorf("an unrestricted token should read the application's event: %+v", got.Changes)
+	}
+}
+
 func TestExtrasThatAreMissingOrFailingAreReportedNotFatal(t *testing.T) {
 	f := newFake(t)
 	f.tempo = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, tempoTrace()) }

@@ -422,7 +422,7 @@ func relevantChanges(evs []ChangeEvent, v *TopologyView, s Scope, tr *Trace) []C
 			e.Resource = r.Key
 		case "application":
 			r, ok := t.apps[e.TargetID]
-			if !ok || limited { // it holds services the Scope may not see
+			if !ok || !s.Unrestricted() { // it holds services the Scope may not see, in a namespace or a cluster it is not limited to
 				continue
 			}
 			e.Resource = r.Key
