@@ -7,6 +7,8 @@ import { TelemetryPanel } from '@/features/pipeline/components/telemetry/Telemet
 import { StatusBadge } from '@/components/ui/Status'
 import { SortTh, useSort } from '@/components/ui/sort'
 import { TabPanel, Tabs } from '@/components/ui/Tabs'
+import { DiagnoseButton, DiagnoseDrawer } from '@/features/agents/components/DiagnoseDrawer'
+import { diagnoseAgent } from '@/lib/diagnose'
 import DiscoveryPanel from '@/features/discovery/components/DiscoveryPanel'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { CopyCommand as CopyableCommand } from '@/components/ui/CopyCommand'
@@ -50,6 +52,8 @@ const shortAge = (iso: string, now = Date.now()) => {
   return s < 90 ? 'now' : s < 5400 ? `${Math.round(s / 60)}m ago` : s < 129600 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`
 }
 const num = (n: number) => n.toLocaleString()
+/** The tone beside the Diagnose button: nothing for an agent that is well, so a quiet table stays quiet. */
+const diagnosisTone = (a: Agent, extras: AgentExtras, now: number) => diagnoseAgent(a, extras, now).verdict
 
 export default function AgentsPage() {
   const { agents, clusters, sites, suggestions } = useTopology()
@@ -60,6 +64,7 @@ export default function AgentsPage() {
   const [open, setOpen] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | AgentHealth>('all')
   const [revoking, setRevoking] = useState<Agent | null>(null)
+  const [diagnosing, setDiagnosing] = useState<string | null>(null)
   const [error, setError] = useState('')
   // A clock that only actually changes on its own tick, not on every re-render this page has plenty of
   // reasons to do for other reasons (a filter, a search, an approval lock) - reading Date.now() directly
@@ -236,7 +241,7 @@ export default function AgentsPage() {
               <thead>
                 <tr>
                   <SortTh id="agent" sort={sort} onSort={toggle}>Agent</SortTh><SortTh id="runsIn" sort={sort} onSort={toggle}>Runs in</SortTh><SortTh id="connection" sort={sort} onSort={toggle}>Connection</SortTh><SortTh id="sent" sort={sort} onSort={toggle}>Sent</SortTh><SortTh id="access" sort={sort} onSort={toggle}>Access</SortTh><SortTh id="status" sort={sort} onSort={toggle}>Status</SortTh>
-                  <Th className="w-10" actionsLabel="Details" />
+                  <Th className="w-28" actionsLabel="Diagnose" />
                 </tr>
               </thead>
               <tbody>
@@ -312,7 +317,9 @@ export default function AgentsPage() {
                         <Td valign="top">
                           <ApprovalStatus status={a.status} />
                         </Td>
-                        <Td valign="top" className="text-nb-600" />
+                        <Td valign="top" className="whitespace-nowrap text-right">
+                          <DiagnoseButton onClick={() => setDiagnosing(a.id)} tone={diagnosisTone(a, extrasOf(rawAgents, a.id), now)} />
+                        </Td>
                       </tr>
                       {expanded && (
                         <tr>
@@ -351,6 +358,9 @@ export default function AgentsPage() {
       </TabPanel>
 
       {connect.dialogs}
+      {diagnosing && agents.find((x) => x.id === diagnosing) && (
+        <DiagnoseDrawer agent={agents.find((x) => x.id === diagnosing)!} extras={extrasOf(rawAgents, diagnosing)} now={now} onClose={() => setDiagnosing(null)} />
+      )}
       {telemetry.dialogs}
 
       {revoking && (

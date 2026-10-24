@@ -146,9 +146,21 @@ export interface AgentConsent {
   unknownNamespaces?: string[]
 }
 
+/** One fact about an agent that the server works out on every read (Connected, ConfigInForce, Compatible): true, false or unknown, with a code and a sentence. */
+export interface AgentCondition {
+  type: string
+  status: 'True' | 'False' | 'Unknown'
+  reason: string
+  message: string
+  since?: string
+}
+
 export interface AgentExtras {
   diagnostics?: AgentDiagnostics
   consent?: AgentConsent
+  /** The server's own conditions for the agent (absent from an older server). */
+  conditions?: AgentCondition[]
+  protocolVersion?: number
 }
 
 /** The two fields of an agent that only editors and administrators receive. */
@@ -157,6 +169,8 @@ export function extrasOf(agents: readonly unknown[] | undefined, id: string): Ag
   if (!a) return {}
   return {
     diagnostics: a.diagnostics ? { ...a.diagnostics, pausedCollectors: a.diagnostics.pausedCollectors ?? [], collectors: a.diagnostics.collectors ?? [], informers: a.diagnostics.informers ?? [], problems: a.diagnostics.problems ?? [], installedTelemetry: a.diagnostics.installedTelemetry ?? [] } : undefined,
+    conditions: a.conditions ?? undefined,
+    protocolVersion: a.protocolVersion,
     consent: a.consent
       ? {
           pausedCollectors: a.consent.pausedCollectors ?? [],

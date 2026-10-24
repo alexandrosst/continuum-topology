@@ -1290,7 +1290,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={clsx('modal-pop w-full border border-nb-850 bg-nb-920 shadow-2xl', side ? 'flex min-h-full flex-col rounded-none border-y-0 border-r-0' : 'rounded-xl', width)}
+        className={clsx(side ? 'drawer-in' : 'modal-pop', 'w-full border border-nb-850 bg-nb-920 shadow-2xl', side ? 'flex min-h-full flex-col rounded-none border-y-0 border-r-0' : 'rounded-xl', width)}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 border-b border-nb-850 px-6 py-4">
