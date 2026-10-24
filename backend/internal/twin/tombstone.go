@@ -176,6 +176,25 @@ func (t *Tombstones) Revive(kind, id string) bool {
 	return true
 }
 
+// Requeue marks again what a write that failed did not save, so the next Dirty returns it. It does so against what the set holds
+// now, not what it held when the write began: a tombstone whose record has come back since (Revive) is not put back, and a key
+// that has been recorded again since is not deleted. put is marked only for tombstones still held; del only for keys no longer held.
+func (t *Tombstones) Requeue(put []store.Tombstone, del []store.TombstoneKey) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, x := range put {
+		k := store.TombstoneKey{Kind: x.Kind, ID: x.ID}
+		if _, ok := t.items[k]; ok {
+			t.upserts[k] = true
+		}
+	}
+	for _, k := range del {
+		if _, ok := t.items[k]; !ok {
+			t.deletes[k] = true
+		}
+	}
+}
+
 // Sweep drops tombstones older than the retention window and returns them.
 func (t *Tombstones) Sweep(now time.Time) []store.Tombstone {
 	t.mu.Lock()

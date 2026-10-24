@@ -153,3 +153,48 @@ func TestJobsAreEphemeral(t *testing.T) {
 		t.Error("Ephemeral")
 	}
 }
+
+// A write that failed is tried again against what is held by the next flush, not what was held when it began: a record that came
+// back in between must not have its tombstone put back, and a key recorded again must not be deleted.
+func TestRequeueDoesNotUndoWhatHappenedSinceTheWriteBegan(t *testing.T) {
+	now := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	tb := NewTombstones(time.Hour)
+	gone := store.Tombstone{Kind: "service", ID: "cart", GoneAt: now}
+	other := store.Tombstone{Kind: "service", ID: "pay", GoneAt: now}
+	tb.Add(gone, other)
+	put, _ := tb.Dirty() // the write that is about to fail
+	if len(put) != 2 {
+		t.Fatalf("put %v", put)
+	}
+	tb.Revive("service", "cart") // the record is back before the retry
+	tb.Requeue(put, nil)
+	put, del := tb.Dirty()
+	if len(put) != 1 || put[0].ID != "pay" {
+		t.Errorf("only the tombstone that is still held is written again: %v", put)
+	}
+	if len(del) != 1 || del[0].ID != "cart" {
+		t.Errorf("the revived one is deleted, and not put back: %v", del)
+	}
+	if tb.Has("service", "cart") {
+		t.Error("the revived record's tombstone came back")
+	}
+
+	// A delete that failed is tried again, unless the key has been recorded again since.
+	tb2 := NewTombstones(time.Hour)
+	tb2.Add(gone)
+	tb2.Dirty()
+	tb2.Sweep(now.Add(2 * time.Hour))
+	_, del = tb2.Dirty()
+	if len(del) != 1 {
+		t.Fatalf("del %v", del)
+	}
+	tb2.Add(store.Tombstone{Kind: "service", ID: "cart", GoneAt: now.Add(3 * time.Hour)}) // gone again, a new tombstone
+	tb2.Dirty()
+	tb2.Requeue(nil, del)
+	if _, del := tb2.Dirty(); len(del) != 0 {
+		t.Errorf("a key that was recorded again is deleted: %v", del)
+	}
+	if !tb2.Has("service", "cart") {
+		t.Error("the new tombstone was lost")
+	}
+}

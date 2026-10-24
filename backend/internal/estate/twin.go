@@ -298,17 +298,22 @@ func (h *Hub) Flush(ctx context.Context) {
 	}
 	tw.tombs.Sweep(h.C.Now())
 	if put, del := tw.tombs.Dirty(); len(put) > 0 || len(del) > 0 {
+		var failedPut []store.Tombstone
+		var failedDel []store.TombstoneKey
 		if len(put) > 0 {
 			if err := h.C.Store.PutTombstones(ctx, h.C.OrgID, put); err != nil {
 				h.Log.Error("twin: tombstones could not be saved", "err", err)
-				tw.tombs.Add(put...) // try again next tick
+				failedPut = put
 			}
 		}
 		if len(del) > 0 {
 			if err := h.C.Store.DeleteTombstones(ctx, h.C.OrgID, del); err != nil {
 				h.Log.Error("twin: tombstones could not be deleted", "err", err)
+				failedDel = del
 			}
 		}
+		// Try again next tick, against what is held by then: a record that came back in between keeps its tombstone gone.
+		tw.tombs.Requeue(failedPut, failedDel)
 	}
 	if ids := tw.reg.Dirty(); len(ids) > 0 {
 		if err := h.C.Store.PutIdentities(ctx, h.C.OrgID, ids); err != nil {
