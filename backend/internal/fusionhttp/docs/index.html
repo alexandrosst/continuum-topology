@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>FUSION data API</title>
 <link rel="stylesheet" href="docs/app.css">
 </head>
 <body>
+<a class="skip" href="#main">Skip to the reference</a>
 <header>
-  <div class="brand"><h1 id="title">FUSION data API</h1><span id="version" class="chip"></span></div>
+  <div class="brand"><h1 id="title">FUSION data API</h1><span id="version" class="chip"></span><a class="chip" href="openapi.json">openapi.json</a></div>
   <form id="auth" autocomplete="off">
     <label for="token">Access token</label>
     <input id="token" type="password" placeholder="cnf_…  (leave empty to use your signed-in session)" spellcheck="false" autocomplete="off">
@@ -17,8 +19,15 @@
   </form>
 </header>
 <div class="layout">
-  <nav id="nav" aria-label="Routes"></nav>
-  <main>
+  <nav aria-label="Routes">
+    <div class="filter">
+      <label for="filter" class="sr">Filter the routes</label>
+      <input id="filter" type="search" placeholder="Filter routes   ( / )" spellcheck="false" autocomplete="off">
+      <div id="count" aria-live="polite"></div>
+    </div>
+    <div id="nav" class="groups"></div>
+  </nav>
+  <main id="main" tabindex="-1">
     <section id="intro"></section>
     <section id="ops"></section>
     <section id="schemas"><h2>Objects</h2><p class="muted">What the answers are made of.</p><div id="schemaList"></div></section>

@@ -11,6 +11,8 @@
     return e;
   };
   try { TOKEN = sessionStorage.getItem('fusion-docs-token') || ''; } catch (e) { /* storage can be blocked */ }
+  // The theme the person chose in the app (the same key, so the two agree); with none chosen the system's preference decides, in CSS.
+  try { var th = localStorage.getItem('ikhnos:theme'); if (th === 'light' || th === 'dark') document.documentElement.setAttribute('data-theme', th); } catch (e) { /* storage can be blocked */ }
 
   // A very small inline renderer for the description: paragraphs, **bold** and `code`.
   function inline(parent, text) {
@@ -115,6 +117,7 @@
     sum.appendChild(el('span', 'sum', op.summary || ''));
     d.appendChild(sum);
     var body = el('div', 'body'); d.appendChild(body);
+    var link = el('a', 'permalink', '# link'); link.href = '#' + d.id; link.title = 'A link to this route'; body.appendChild(link);
     if (op.description) para(body, op.description);
 
     var inputs = [];
@@ -285,12 +288,17 @@
   }
 
   // ---- page ----
+  var ENTRIES = [], GROUPS = [];
+  var slug = function (t) { return t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); };
+  var short = function (path) { return path.replace('/api/v1/fusion', ''); };
+
   function render() {
     document.title = SPEC.info.title;
     $('title').textContent = SPEC.info.title;
     $('version').textContent = 'v' + SPEC.info.version;
     para($('intro'), SPEC.info.description || '');
     var nav = $('nav'), ops = $('ops'), byTag = {};
+    var narrow = window.matchMedia && window.matchMedia('(max-width:800px)').matches;
     Object.keys(SPEC.paths).forEach(function (path) {
       Object.keys(SPEC.paths[path]).forEach(function (method) {
         var op = SPEC.paths[path][method], t = (op.tags || ['Other'])[0];
@@ -303,19 +311,77 @@
     (SPEC.tags || []).forEach(function (t) {
       var items = byTag[t.name] || [];
       if (!items.length) return;
-      nav.appendChild(el('h3', null, t.name));
-      ops.appendChild(el('h2', null, t.name));
+      var g = { name: t.name, nav: el('details'), sec: el('section', 'group'), entries: [], open: !narrow };
+      g.nav.open = g.open;
+      var sum = el('summary', null, t.name); sum.appendChild(el('span', 'n', String(items.length)));
+      g.nav.appendChild(sum);
+      g.sec.id = 'tag-' + slug(t.name);
+      var h = el('h2', null, t.name); h.appendChild(el('span', 'n', items.length + (items.length === 1 ? ' route' : ' routes')));
+      g.sec.appendChild(h);
       items.forEach(function (it) {
         var a = el('a'); a.href = '#op-' + it.op.operationId;
-        a.appendChild(el('span', 'm', it.method.toUpperCase())); a.appendChild(document.createTextNode(it.path.replace('/api/v1/fusion', '')));
-        a.onclick = function () { var d = $('op-' + it.op.operationId); if (d) d.open = true; };
-        nav.appendChild(a);
-        ops.appendChild(renderOp(it.path, it.method, it.op));
+        a.appendChild(el('span', 'method ' + it.method, it.method.toUpperCase())); a.appendChild(el('span', null, short(it.path)));
+        a.addEventListener('click', function () { setTimeout(openFromHash, 0); });
+        g.nav.appendChild(a);
+        var d = renderOp(it.path, it.method, it.op);
+        g.sec.appendChild(d);
+        d.addEventListener('toggle', function () { if (d.open && location.hash !== '#' + d.id) { try { history.replaceState(null, '', '#' + d.id); } catch (e) { /* ignore */ } markCurrent(); } });
+        var params = (it.op.parameters || []).map(function (p) { return p.name; }).join(' ');
+        var e = { a: a, d: d, g: g, id: d.id, text: [it.method, it.path, it.op.summary, it.op.operationId, t.name, params].join(' ').toLowerCase() };
+        g.entries.push(e); ENTRIES.push(e);
       });
+      nav.appendChild(g.nav); ops.appendChild(g.sec); GROUPS.push(g);
     });
+    nav.appendChild(el('p', 'none', 'No route matches.')).hidden = true;
     renderSchemas();
-    if (location.hash.indexOf('#op-') === 0) { var d = $(location.hash.slice(1)); if (d) { d.open = true; d.scrollIntoView(); } }
+    $('filter').addEventListener('input', applyFilter);
+    $('filter').addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { this.value = ''; applyFilter(); }
+      else if (e.key === 'Enter') { var v = ENTRIES.filter(function (x) { return !x.a.hidden; }); if (v.length) { location.hash = v[0].id; } }
+    });
+    applyFilter();
+    openFromHash();
   }
+
+  // The filter narrows the list on the left and the routes on the right by every word typed, in the path, summary, group or parameter names.
+  function applyFilter() {
+    var terms = $('filter').value.toLowerCase().split(/\s+/).filter(Boolean), shown = 0;
+    ENTRIES.forEach(function (x) {
+      var hit = terms.every(function (t) { return x.text.indexOf(t) >= 0; });
+      x.a.hidden = x.d.hidden = !hit; if (hit) shown++;
+    });
+    GROUPS.forEach(function (g) {
+      var n = g.entries.filter(function (x) { return !x.a.hidden; }).length;
+      g.nav.hidden = g.sec.hidden = n === 0;
+      g.nav.firstChild.lastChild.textContent = terms.length ? n + '/' + g.entries.length : String(g.entries.length);
+      if (terms.length) g.nav.open = n > 0; else g.nav.open = g.open;
+    });
+    $('nav').lastChild.hidden = shown > 0;
+    $('count').textContent = terms.length ? shown + ' of ' + ENTRIES.length + ' routes' : '';
+  }
+
+  function markCurrent() {
+    ENTRIES.forEach(function (x) { if (location.hash === '#' + x.id) x.a.setAttribute('aria-current', 'true'); else x.a.removeAttribute('aria-current'); });
+  }
+
+  // A link to a route (#op-getTraces), a group (#tag-traces) or an object (#schema-Trace) opens it and shows it, whatever the filter says.
+  function openFromHash() {
+    markCurrent();
+    var id = location.hash.slice(1), d = id ? document.getElementById(id) : null;
+    if (!d) return;
+    if (d.hidden) { $('filter').value = ''; applyFilter(); }
+    if (d.tagName === 'DETAILS') d.open = true;
+    d.scrollIntoView();
+  }
+  window.addEventListener('hashchange', openFromHash);
+
+  // "/" jumps to the filter, as on most documentation sites, unless a field already has the keys.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target, tag = t && t.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+    e.preventDefault(); $('filter').focus();
+  });
 
   $('token').value = TOKEN;
   $('auth').onsubmit = function (e) {
