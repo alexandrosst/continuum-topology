@@ -1,0 +1,33 @@
+/*
+ * The colours figures are drawn with. Figures never name a colour: they use these variables, so one change here
+ * restyles every figure, and light and dark mode are one switch.
+ */
+:root {
+  --cds-text-primary: #1f2328;
+  --cds-text-secondary: #5b6672;
+  --cds-chart-axis: #6b7682;
+  --cds-chart-grid: #cfd6dd;
+  --cds-chart-reference-tint: rgba(31, 35, 40, 0.045);
+  --cds-chart-categorical-1: #c2410c;
+  --cds-chart-status-good: #15803d;
+  --cds-chart-status-warning: #a16207;
+  --cds-chart-status-bad: #b91c1c;
+  --cds-tier-cloud: #2563eb;
+  --cds-tier-edge: #047857;
+  --cds-tier-far: #7e22ce;
+}
+
+[data-theme='dark'] {
+  --cds-text-primary: #e6e9ec;
+  --cds-text-secondary: #9ba6b1;
+  --cds-chart-axis: #8a97a2;
+  --cds-chart-grid: #3a4047;
+  --cds-chart-reference-tint: rgba(255, 255, 255, 0.05);
+  --cds-chart-categorical-1: #f68330;
+  --cds-chart-status-good: #34d399;
+  --cds-chart-status-warning: #fbbf24;
+  --cds-chart-status-bad: #f87171;
+  --cds-tier-cloud: #60a5fa;
+  --cds-tier-edge: #34d399;
+  --cds-tier-far: #c084fc;
+}

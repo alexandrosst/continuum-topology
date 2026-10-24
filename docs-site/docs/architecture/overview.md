@@ -4,14 +4,9 @@ title: System overview
 description: The server, the agent, and how they fit together across cloud, edge and far-edge clusters.
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # System overview
 
-<figure className="diagram-figure">
-  <img src={useBaseUrl('/img/diagrams/architecture-overview.svg')} alt="Ikhnos Server with two listeners, agents dialing out from cloud, edge and far-edge clusters, GHCR supplying images and charts, your browser talking over HTTPS" />
-  <figcaption className="diagram-caption">Everything an agent sends is pulled by the server, never pushed in from outside it — the arrows into "Ikhnos Server" are the only traffic initiated from a cluster.</figcaption>
-</figure>
+<Figure name="SystemAtAGlance" caption="Every connection between a cluster and the server is opened by the agent, so nothing needs a firewall rule to let the server in." />
 
 ## The server
 

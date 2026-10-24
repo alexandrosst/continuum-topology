@@ -1,22 +1,45 @@
 import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
-// Hand-written rather than auto-generated: the whole point of this site is a structure that
-// separates "I want to run this" from "I want to understand this" from "I want to hack on this" —
-// an alphabetical autogen sidebar would flatten that distinction right back out.
+// Hand-written rather than generated. The order is the order of a reader's questions: what is this,
+// can I get it running, how do I use it, how is it built, and what do I look up. An alphabetical
+// sidebar would flatten that right back out.
 const sidebars: SidebarsConfig = {
   docsSidebar: [
     'intro',
     {
       type: 'category',
-      label: 'Getting started',
-      link: {type: 'doc', id: 'getting-started/quickstart'},
-      items: ['getting-started/quickstart'],
+      label: 'Learn',
+      collapsed: false,
+      link: {type: 'doc', id: 'learn/what-is-ikhnos'},
+      items: ['learn/what-is-ikhnos', 'learn/how-it-works', 'learn/concepts'],
     },
     {
       type: 'category',
-      label: 'Installation',
-      link: {type: 'doc', id: 'installation/index'},
+      label: 'Get started',
+      collapsed: false,
+      link: {type: 'doc', id: 'journey/index'},
       items: [
+        'journey/index',
+        'journey/prepare',
+        'journey/install-server',
+        'journey/sign-in',
+        'journey/connect-a-cluster',
+        'journey/approve',
+        'journey/explore',
+        'journey/advice',
+        'journey/next-steps',
+        'getting-started/quickstart',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Guides',
+      link: {type: 'doc', id: 'user-guide/using-the-ui'},
+      items: [
+        'user-guide/using-the-ui',
+        'user-guide/approvals-in-depth',
+        'user-guide/mobility-and-placement',
+        'user-guide/namespaces-and-services',
         'installation/index',
         'installation/production-cluster',
         'installation/connecting-a-cluster',
@@ -24,34 +47,45 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Architecture',
-      link: {type: 'doc', id: 'architecture/overview'},
+      label: 'Inside Ikhnos',
+      link: {type: 'doc', id: 'inside/index'},
       items: [
+        'inside/index',
         'architecture/overview',
-        'architecture/trust-model',
-        'architecture/permissions-reference',
-        'architecture/agent-trust-model',
-        'architecture/observability-intent',
-        'architecture/telemetry-intent',
-        'architecture/cluster-links',
-        'architecture/regional-operators',
-        'architecture/fusion-api',
-        'architecture/fusion-grafana',
-        'architecture/regional-operators-lifecycle',
-        'architecture/lifecycle',
-        'architecture/system-memory',
-        'architecture/exposure-options',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'User guide',
-      link: {type: 'doc', id: 'user-guide/using-the-ui'},
-      items: [
-        'user-guide/using-the-ui',
-        'user-guide/approvals-in-depth',
-        'user-guide/mobility-and-placement',
-        'user-guide/namespaces-and-services',
+        'inside/server',
+        'inside/agent',
+        'inside/data-flow',
+        'inside/config-channel',
+        'inside/placement-engine',
+        'inside/frontend',
+        {
+          type: 'category',
+          label: 'Trust and security',
+          items: ['architecture/trust-model', 'architecture/agent-trust-model', 'architecture/permissions-reference'],
+        },
+        {
+          type: 'category',
+          label: 'Telemetry and FUSION',
+          items: [
+            'architecture/observability-intent',
+            'architecture/telemetry-intent',
+            'architecture/regional-operators',
+            'architecture/regional-operators-lifecycle',
+            'architecture/fusion-api',
+            'architecture/fusion-grafana',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Links and memory',
+          items: ['architecture/cluster-links', 'architecture/system-memory'],
+        },
+        {
+          type: 'category',
+          label: 'Operating',
+          items: ['architecture/exposure-options', 'architecture/lifecycle'],
+        },
+        'inside/design-history',
       ],
     },
     {
@@ -64,12 +98,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Reference',
       link: {type: 'doc', id: 'reference/index'},
-      items: [
-        'reference/index',
-        'reference/server-helm-values',
-        'reference/agent-helm-values',
-        'reference/cli-flags',
-      ],
+      items: ['reference/index', 'reference/server-helm-values', 'reference/agent-helm-values', 'reference/cli-flags'],
     },
     {
       type: 'category',

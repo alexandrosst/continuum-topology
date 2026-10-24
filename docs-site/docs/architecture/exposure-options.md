@@ -4,14 +4,9 @@ title: Exposing the agent port
 description: LoadBalancer, NodePort, or Gateway API TLSRoute — ways to get real traffic to the agent port.
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # Exposing the agent port
 
-<figure className="diagram-figure">
-  <img src={useBaseUrl('/img/diagrams/exposure-options.svg')} alt="Three columns comparing LoadBalancer, NodePort and Gateway API TLSRoute passthrough exposure of the agent port, all preserving an unbroken TLS handshake to the server pod" />
-  <figcaption className="diagram-caption">All three preserve one thing: the TLS handshake reaches the pod unbroken. The admin port, below, is the opposite case — it wants TLS terminated in front of it.</figcaption>
-</figure>
+<Figure name="ExposureOptions" caption="All three preserve one thing: the TLS handshake reaches the pod unbroken. The admin port, below, is the opposite case — it wants TLS terminated in front of it." />
 
 The agent port speaks mutual TLS gRPC, and the handshake — client certificate, server certificate, the works — has to arrive at the server pod exactly as the agent sent it. Anything that terminates TLS in front of it (an HTTP-aware ingress controller in its default mode, an ALB doing HTTPS-to-HTTP, a service mesh sidecar rewriting the connection) breaks the handshake, usually with an error that doesn't obviously point back at "TLS was terminated somewhere." That one rule is why this port is exposed differently from the UI.
 

@@ -4,14 +4,9 @@ title: Observability intent
 description: The three independent ways an agent's scope is narrowed — access tier, paused collectors, excluded namespaces — and how the server enforces all three itself rather than trusting the agent's word for it.
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # Observability intent
 
-<figure className="diagram-figure">
-  <img src={useBaseUrl('/img/diagrams/observability-intent.svg')} alt="Three independent narrowing dimensions — access tier ceiling to approved to effective, paused collectors, and excluded namespaces — all enforced a second time server-side as a backstop, on top of what the agent already applies to itself" />
-  <figcaption className="diagram-caption">Every one of these is the agent's own job first. The server checks all three again anyway, because "the agent already does this" is not the same claim as "the server never has to find out the hard way."</figcaption>
-</figure>
+<Figure name="TrustChain" caption="The agent applies each limit itself first. The server checks all three again anyway, because the agent already doing it is not the same claim as the server knowing it." />
 
 *Observability intent* is what the [Agent insight panel](../user-guide/using-the-ui.md) calls the sum of these three settings: the scope of what one agent reads and reports, at this moment, from this cluster. It can only ever get narrower than what the cluster's own install allows — never wider — and everything on this page follows from that one rule.
 

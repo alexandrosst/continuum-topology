@@ -4,14 +4,9 @@ title: System memory
 description: How every kind of change — a service scaling, an application renamed, an agent's tier narrowed — ends up in the same temporal graph, with a reason attached and a bounded way to ask what depends on what.
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # System memory
 
-<figure className="diagram-figure">
-  <img src={useBaseUrl('/img/diagrams/entity-version-model.svg')} alt="One entity's timeline: three Version nodes in sequence, each with a validFrom and validTo, the current one open-ended, and an Event connected to the version it produced by an EXPLAINS edge" />
-  <figcaption className="diagram-caption">Nothing is ever edited or deleted here. A change closes the open version's validTo and opens a new one — "what did this look like an hour ago" is a filter on a timestamp, not a separate audit system bolted on afterward.</figcaption>
-</figure>
+<Figure name="EntityVersions" caption="Nothing is ever edited or deleted here. A change closes the open version's validTo and opens a new one — “what did this look like an hour ago” is a filter on a timestamp, not a separate audit system bolted on afterward." />
 
 Every entity this server has ever seen — a cluster, a service, a namespace, an agent, an application — is remembered the same way, regardless of which of the nine kinds it is or how it came to be recorded. That uniformity is deliberate: the topology views, the History page's **Timeline**, and the [Dependents/Dependencies graph](#what-depends-on-what) all work against one shape, not nine special cases.
 
@@ -50,10 +45,7 @@ Given one entity and a moment, **`Dependents`** answers "what would be affected 
 
 The walk moves level by level — breadth-first, one query per hop, over only the entities the previous level reached and had not already visited — rather than asking the database to enumerate every path through a `*1..hops` variable-length pattern in one query. That distinction matters specifically because relationships are never deleted: a node with a long history behind it, or genuine fan-out (a handful of shared services with hundreds of callers each), can carry far more edges than it has distinct neighbors, and a variable-length pattern walks every one of those edges as a separate path before it can collapse them back down to "reached, at its shortest distance." The cost of that is exponential in the branching a query happens to meet; a level-by-level walk with a visited set costs work proportional to the frontier's actual size instead, at the price of up to eight round trips to the database instead of one — cheap next to a query that might never return.
 
-<figure className="diagram-figure">
-  <img src={useBaseUrl('/img/diagrams/bounded-graph-walk.svg')} alt="A breadth-first walk fanning out from a hub entity: six reached callers plus a placeholder for thousands more at hop 1, a maxWalkResults barrier once the cap fires, a grayed-out ghost region for hop 2 and beyond that is never queried, and a panel showing malformed hops input all clamped to 200 OK" />
-  <figcaption className="diagram-caption">Three independent bounds, not one. The result cap can fire while hops would still allow more levels — hop 2 is never "disallowed," it's simply never reached, because the walk already stopped for an unrelated reason.</figcaption>
-</figure>
+<Figure name="BoundedWalk" caption="Three independent bounds, not one. The result cap can fire while hops would still allow more levels — hop 2 is never “disallowed,” it's simply never reached, because the walk already stopped for an unrelated reason." />
 
 Three independent limits keep any single call bounded regardless of what the estate looks like:
 

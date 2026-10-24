@@ -43,18 +43,47 @@ const config: Config = {
     },
   ],
 
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        // The docs used to be the whole site, at the root. Every old address still works.
+        createRedirects(existingPath: string) {
+          if (existingPath.startsWith('/docs/') && existingPath !== '/docs/') {
+            return [existingPath.slice('/docs'.length)];
+          }
+          return undefined;
+        },
+      },
+    ],
+  ],
+
+  themes: [
+    [
+      require.resolve('@easyops-cn/docusaurus-search-local'),
+      {
+        hashed: true,
+        docsRouteBasePath: '/docs',
+        indexBlog: false,
+        highlightSearchTermsOnTargetPage: true,
+        explicitSearchResultPath: true,
+        searchResultLimits: 10,
+      },
+    ],
+  ],
+
   presets: [
     [
       'classic',
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          routeBasePath: '/', // docs ARE the site — no separate landing page to maintain
+          routeBasePath: 'docs', // the landing page is src/pages/index.tsx; everything else is under /docs
           editUrl: `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/tree/main/docs-site/`,
         },
         blog: false,
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: ['./src/css/figure-tokens.css', './src/css/custom.css'],
         },
       } satisfies Preset.Options,
     ],
@@ -62,11 +91,9 @@ const config: Config = {
 
   themeConfig: {
     colorMode: {
-      // The product itself is dark-first (see src/index.css) and doesn't follow the OS preference either,
-      // so the docs default to dark too rather than showing most first-time visitors a light theme this
-      // product never actually has. The toggle in the navbar still lets anyone switch.
+      // The product is dark first, so dark is the default. Anyone whose system asks for light gets light.
       defaultMode: 'dark',
-      respectPrefersColorScheme: false,
+      respectPrefersColorScheme: true,
     },
     navbar: {
       title: 'Ikhnos',
@@ -75,12 +102,12 @@ const config: Config = {
         src: 'img/logo.svg',
       },
       items: [
-        {
-          type: 'docSidebar',
-          sidebarId: 'docsSidebar',
-          position: 'left',
-          label: 'Documentation',
-        },
+        {to: '/docs/learn/what-is-ikhnos', label: 'Learn', position: 'left', activeBasePath: '/docs/learn'},
+        {to: '/docs/journey/', label: 'Get started', position: 'left', activeBasePath: '/docs/journey'},
+        {to: '/docs/user-guide/using-the-ui', label: 'Guides', position: 'left', activeBasePath: '/docs/user-guide'},
+        {to: '/docs/inside/', label: 'Inside Ikhnos', position: 'left', activeBasePath: '/docs/inside'},
+        {to: '/docs/reference/', label: 'Reference', position: 'left', activeBasePath: '/docs/reference'},
+        {type: 'search', position: 'right'},
         {
           href: `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}`,
           label: 'GitHub',
@@ -92,11 +119,27 @@ const config: Config = {
       style: 'dark',
       links: [
         {
-          title: 'Documentation',
+          title: 'Learn',
           items: [
-            {label: 'Getting started', to: '/getting-started/quickstart'},
-            {label: 'Architecture', to: '/architecture/overview'},
-            {label: 'Troubleshooting', to: '/troubleshooting/common-errors'},
+            {label: 'What is Ikhnos', to: '/docs/learn/what-is-ikhnos'},
+            {label: 'How it works', to: '/docs/learn/how-it-works'},
+            {label: 'Concepts in plain words', to: '/docs/learn/concepts'},
+          ],
+        },
+        {
+          title: 'Use it',
+          items: [
+            {label: 'Your first hour', to: '/docs/journey/'},
+            {label: 'Quickstart', to: '/docs/getting-started/quickstart'},
+            {label: 'Troubleshooting', to: '/docs/troubleshooting/common-errors'},
+          ],
+        },
+        {
+          title: 'Build on it',
+          items: [
+            {label: 'Inside Ikhnos', to: '/docs/inside/'},
+            {label: 'Contributing', to: '/docs/contributing/developer-guide'},
+            {label: 'Roadmap', to: '/docs/project/roadmap'},
           ],
         },
         {
@@ -108,7 +151,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} ${GITHUB_OWNER}. Ikhnos is licensed under Apache-2.0.`,
+      copyright: `Ikhnos is open source under the Apache License 2.0.`,
     },
     prism: {
       theme: prismThemes.oneLight,

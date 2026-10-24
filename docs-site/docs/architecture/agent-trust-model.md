@@ -4,14 +4,9 @@ title: Agent trust model
 description: How an agent goes from nothing to a certificate the server trusts, step by step.
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # Agent trust model
 
-<figure className="diagram-figure">
-  <img src={useBaseUrl('/img/diagrams/agent-trust-model.svg')} alt="Six-step enrollment flow from clicking Connect a cluster in the UI through to an established mutual-TLS channel" />
-  <figcaption className="diagram-caption">Nothing here needs an inbound firewall rule on the cluster's side — every network connection is opened by the agent, outward.</figcaption>
-</figure>
+<Figure name="EnrollmentSequence" caption="Nothing here needs an inbound firewall rule on the cluster's side — every network connection is opened by the agent, outward." />
 
 ## Why two secrets instead of one
 

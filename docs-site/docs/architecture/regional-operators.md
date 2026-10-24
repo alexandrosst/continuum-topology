@@ -4,14 +4,9 @@ title: Regional operators
 description: The second fan-in tier above per-cluster telemetry — a standalone aggregation point with no RBAC, no server channel unless you opt in to a content-free heartbeat, and no chaining, and what that deliberately leaves out.
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # Regional operators
 
-<figure className="diagram-figure">
-  <img src={useBaseUrl('/img/diagrams/regional-operators.svg')} alt="Two clusters, each already exporting its own aggregated telemetry, arrowing into one regional operator box labeled with its processor pipeline, which arrows onward to a destination. A second, dashed arrow points at a ghost 'another regional operator' box labeled not supported in this release." />
-  <figcaption className="diagram-caption">A regional operator fans in what clusters already export as a whole — it doesn't reach into any single node, and it can't (yet) feed another regional operator.</figcaption>
-</figure>
+<Figure name="TelemetryFlow" caption="A regional operator fans in what clusters already export as a whole — it doesn't reach into any single node, and it can't (yet) feed another regional operator." />
 
 [Telemetry intent](./telemetry-intent.md) covers the first fan-in: one Helm release already reaches every node in a cluster, because a DaemonSet is Kubernetes' own fan-out primitive, not something this project reinvents. That page's own "Multi-cluster" section names the fan-in that stops there — each cluster's release is independent, and nothing aggregates what several clusters produce. A regional operator is the second, explicit fan-in tier that closes that gap: a standalone collector that receives what a set of already-approved clusters already export, and re-exports it as one stream.
 

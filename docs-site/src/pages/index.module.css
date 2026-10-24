@@ -1,0 +1,165 @@
+.hero {
+  padding: 4.5rem 1.5rem 3.5rem;
+  border-bottom: 1px solid var(--ikh-line);
+  background:
+    radial-gradient(60rem 24rem at 15% -10%, var(--ikh-accent-soft), transparent 70%),
+    var(--ifm-background-color);
+}
+.heroInner {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 3rem;
+  align-items: center;
+}
+.mark {
+  height: 3.4rem;
+  margin-bottom: 1.4rem;
+}
+.heroText h1 {
+  font-size: clamp(2.2rem, 4.4vw, 3.4rem);
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  margin-bottom: 1.1rem;
+}
+.lede {
+  font-size: 1.15rem;
+  line-height: 1.65;
+  color: var(--ikh-muted);
+  max-width: 34rem;
+}
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1.6rem 0 1rem;
+}
+.ghost {
+  font-weight: 600;
+  margin-left: 0.4rem;
+}
+.note {
+  font-size: 0.86rem;
+  color: var(--ikh-muted);
+}
+.heroShot img {
+  width: 100%;
+  height: auto;
+  border-radius: 0.9rem;
+  border: 1px solid var(--ikh-line);
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.35);
+}
+
+.section,
+.sectionAlt,
+.cta {
+  padding: 4rem 1.5rem;
+}
+.sectionAlt {
+  background: var(--ikh-surface-2);
+  border-top: 1px solid var(--ikh-line);
+  border-bottom: 1px solid var(--ikh-line);
+}
+.wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.wrap h2 {
+  font-size: 1.9rem;
+  letter-spacing: -0.025em;
+  margin-bottom: 0.6rem;
+}
+.sub {
+  color: var(--ikh-muted);
+  max-width: 44rem;
+  margin-bottom: 1.6rem;
+}
+.grid4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.tile {
+  padding: 1.25rem 1.3rem;
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.9rem;
+  background: var(--ikh-surface);
+}
+.tile h3 {
+  font-size: 1.02rem;
+  margin-bottom: 0.4rem;
+}
+.tile p {
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--ikh-muted);
+  margin: 0;
+}
+.path {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.5rem;
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.9rem;
+  background: var(--ikh-surface);
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.path:hover {
+  border-color: var(--ifm-color-primary);
+  transform: translateY(-2px);
+  text-decoration: none;
+  color: var(--ifm-font-color-base);
+}
+.kicker {
+  font-size: 0.74rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ifm-color-primary);
+}
+.pathTitle {
+  font-size: 1.25rem;
+  font-weight: 650;
+  color: var(--ifm-heading-color);
+}
+.pathText {
+  font-size: 0.94rem;
+  line-height: 1.6;
+  color: var(--ikh-muted);
+}
+.cta {
+  text-align: center;
+}
+.cta .code {
+  display: inline-block;
+  text-align: left;
+  margin: 1.2rem auto 0;
+  padding: 1rem 1.3rem;
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.75rem;
+  background: var(--ifm-code-background);
+  font-size: 0.86rem;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.cta .buttons {
+  justify-content: center;
+}
+
+@media (max-width: 996px) {
+  .heroInner {
+    grid-template-columns: 1fr;
+  }
+}

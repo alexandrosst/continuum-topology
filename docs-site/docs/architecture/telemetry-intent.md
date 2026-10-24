@@ -4,14 +4,9 @@ title: Telemetry intent
 description: The four commitments telemetry collection is built on, how a single Helm release fans out across every node (GPU nodes included), the server-side TelemetryIntent grant behind a local operator's own collection and export, the wizard and panel that configure it, and the quick-start backend specs and access gateway.
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # Telemetry intent
 
-<figure className="diagram-figure">
-  <img src={useBaseUrl('/img/diagrams/telemetry-intent.svg')} alt="Left: one Helm release fanning out to every node via DaemonSets for the host collector, Kepler and dcgm-exporter, plus one Deployment for cluster-wide aggregation. Right: three clusters each running their own independent release, with no fleet-wide telemetry policy today." />
-  <figcaption className="diagram-caption">One release per cluster already reaches every node — Kubernetes does that fan-out, not a per-node chart. What it doesn't do yet is coordinate across clusters.</figcaption>
-</figure>
+<Figure name="AgentInside" caption="One release per cluster already reaches every node — Kubernetes does that fan-out, not a per-node chart. What it doesn't do yet is coordinate across clusters." />
 
 Where [Observability intent](./observability-intent.md) is about how far an *agent* is allowed to see into a cluster, telemetry intent is a related but separate question: given a signal an agent is already allowed to see, should raw OTel data about it leave the cluster at all, and to where. The two systems share a chart, a philosophy of narrowing rather than widening, and a UI (telemetry sits in the same wizard as access tier and namespace scope), but they don't share a trust model — and that difference, not just a list of toggles, is what this page is actually about.
 

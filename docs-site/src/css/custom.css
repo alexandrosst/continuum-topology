@@ -1,88 +1,365 @@
-/**
- * Ikhnos docs theme.
- * Same palette as the app itself (src/index.css): near-black neutrals + orange accent,
- * so the docs feel like part of the same product rather than a bolted-on wiki.
+/*
+ * The Ikhnos documentation theme.
+ *
+ * It borrows the product's own look (src/index.css): quiet neutrals, one orange, Inter, hairline borders and
+ * generous space. The figures are drawn with their own variables (figure-tokens.css), so they follow the same switch.
  */
 
 :root {
   --ifm-font-family-base: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --ifm-font-family-monospace: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
-  --ifm-code-font-size: 90%;
+  --ifm-font-family-monospace: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --ifm-font-size-base: 100%;
+  --ifm-line-height-base: 1.7;
+  --ifm-code-font-size: 88%;
+  --ifm-heading-font-weight: 650;
+  --ifm-heading-line-height: 1.25;
+  --ifm-global-radius: 0.5rem;
+  --ifm-navbar-height: 3.75rem;
+  --ifm-navbar-shadow: none;
+  --ifm-toc-padding-vertical: 0.35rem;
+  --ifm-menu-color-background-active: transparent;
+  --ifm-container-width-xl: 1400px;
 
-  --ifm-color-primary: #e55b1f;
-  --ifm-color-primary-dark: #cf5119;
-  --ifm-color-primary-darker: #c34c18;
-  --ifm-color-primary-darkest: #a03e14;
-  --ifm-color-primary-light: #ea6b34;
-  --ifm-color-primary-lighter: #ec7440;
-  --ifm-color-primary-lightest: #f18f63;
+  --ifm-color-primary: #c2410c;
+  --ifm-color-primary-dark: #b03b0b;
+  --ifm-color-primary-darker: #a73809;
+  --ifm-color-primary-darkest: #892e08;
+  --ifm-color-primary-light: #d4480e;
+  --ifm-color-primary-lighter: #dc4e13;
+  --ifm-color-primary-lightest: #e86a33;
 
-  --ct-tier-cloud: #3b82f6;
-  --ct-tier-edge: #10b981;
-  --ct-tier-far: #a855f7;
+  --ifm-background-color: #fbfaf8;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-navbar-background-color: rgba(251, 250, 248, 0.82);
+  --ifm-footer-background-color: #f2efea;
+  --ifm-footer-color: #5b6672;
+  --ifm-footer-title-color: #1f2328;
+  --ifm-footer-link-color: #5b6672;
+  --ifm-toc-border-color: #e6e1da;
+  --ifm-hr-border-color: #e6e1da;
+  --ifm-color-emphasis-300: #d9d3ca;
+  --ifm-code-background: #f2efea;
+  --ifm-table-stripe-background: transparent;
+  --ifm-table-border-color: #e6e1da;
+  --ifm-heading-color: #1f2328;
+  --ifm-font-color-base: #2b3138;
+  --ifm-link-hover-decoration: underline;
 
-  --docusaurus-highlighted-code-line-bg: rgba(246, 131, 48, 0.12);
-}
+  --ikh-line: #e6e1da;
+  --ikh-surface: #ffffff;
+  --ikh-surface-2: #f6f3ee;
+  --ikh-muted: #5b6672;
+  --ikh-accent: #c2410c;
+  --ikh-accent-soft: rgba(194, 65, 12, 0.08);
 
-/* Light mode still exists (respects OS preference) but this product lives in dark mode, so it gets a
-   lighter version of the same neutrals rather than Infima's default blue-gray. */
-[data-theme='light'] {
-  --ifm-background-color: #f7f5f2;
-  --ifm-navbar-background-color: #ffffff;
+  --ct-tier-cloud: #2563eb;
+  --ct-tier-edge: #047857;
+  --ct-tier-far: #7e22ce;
+  --docusaurus-highlighted-code-line-bg: rgba(194, 65, 12, 0.1);
 }
 
 [data-theme='dark'] {
   --ifm-color-primary: #f68330;
-  --ifm-color-primary-dark: #e55b1f;
-  --ifm-color-primary-darker: #d8531d;
-  --ifm-color-primary-darkest: #b8461a;
-  --ifm-color-primary-light: #f89a57;
-  --ifm-color-primary-lighter: #f9a768;
-  --ifm-color-primary-lightest: #fbc08f;
+  --ifm-color-primary-dark: #f4721a;
+  --ifm-color-primary-darker: #f46a0e;
+  --ifm-color-primary-darkest: #d25a09;
+  --ifm-color-primary-light: #f89448;
+  --ifm-color-primary-lighter: #f99d58;
+  --ifm-color-primary-lightest: #fbb783;
 
-  --ifm-background-color: #181a1d;
-  --ifm-background-surface-color: #1c1e22;
-  --ifm-navbar-background-color: #1b1d20;
-  --ifm-footer-background-color: #16181a;
-  --ifm-toc-border-color: #2b2f33;
-  --ifm-hr-border-color: #2b2f33;
-  --ifm-color-emphasis-300: #3f444b;
-  --ifm-code-background: #1f2124;
-  --docusaurus-highlighted-code-line-bg: rgba(246, 131, 48, 0.16);
+  --ifm-background-color: #14161a;
+  --ifm-background-surface-color: #1a1d21;
+  --ifm-navbar-background-color: rgba(20, 22, 26, 0.82);
+  --ifm-footer-background-color: #101215;
+  --ifm-footer-color: #9ba6b1;
+  --ifm-footer-title-color: #e6e9ec;
+  --ifm-footer-link-color: #9ba6b1;
+  --ifm-toc-border-color: #2a2e34;
+  --ifm-hr-border-color: #2a2e34;
+  --ifm-color-emphasis-300: #3a4047;
+  --ifm-code-background: #1d2024;
+  --ifm-table-border-color: #2a2e34;
+  --ifm-heading-color: #f1f3f5;
+  --ifm-font-color-base: #c9d0d7;
+
+  --ikh-line: #2a2e34;
+  --ikh-surface: #1a1d21;
+  --ikh-surface-2: #1f2328;
+  --ikh-muted: #9ba6b1;
+  --ikh-accent: #f68330;
+  --ikh-accent-soft: rgba(246, 131, 48, 0.1);
+
+  --ct-tier-cloud: #60a5fa;
+  --ct-tier-edge: #34d399;
+  --ct-tier-far: #c084fc;
+  --docusaurus-highlighted-code-line-bg: rgba(246, 131, 48, 0.14);
 }
 
-[data-theme='dark'] .navbar {
-  border-bottom: 1px solid #2b2f33;
+/* ---------- page furniture ---------- */
+
+.navbar {
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  border-bottom: 1px solid var(--ikh-line);
+}
+.navbar__title {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.navbar__link {
+  font-weight: 500;
+  font-size: 0.92rem;
+}
+.navbar__link--active {
+  color: var(--ifm-color-primary);
 }
 
-[data-theme='dark'] .menu__link--active,
-[data-theme='dark'] .menu__link:hover {
-  background: rgba(246, 131, 48, 0.1);
+.theme-doc-sidebar-container {
+  border-right: 1px solid var(--ikh-line) !important;
+}
+.menu {
+  padding: 1.25rem 0.75rem !important;
+}
+.menu__link {
+  font-size: 0.9rem;
+  border-radius: 0.4rem;
+  padding: 0.38rem 0.6rem;
+}
+.menu__link--active:not(.menu__link--sublist) {
+  background: var(--ikh-accent-soft);
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+.menu__list-item-collapsible:hover {
+  background: var(--ikh-surface-2);
+}
+.theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible > .menu__link {
+  font-weight: 650;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ikh-muted);
 }
 
-[data-theme='dark'] .theme-doc-sidebar-container {
-  border-right: 1px solid #2b2f33 !important;
+.table-of-contents {
+  font-size: 0.82rem;
+}
+.table-of-contents__link--active {
+  color: var(--ifm-color-primary);
+  font-weight: 600;
 }
 
-[data-theme='dark'] table {
+/* ---------- reading ---------- */
+
+.theme-doc-markdown {
+  max-width: 46rem;
+}
+article .markdown > h1:first-child {
+  font-size: 2.4rem;
+  letter-spacing: -0.03em;
+  margin-bottom: 1.2rem;
+}
+.markdown h2 {
+  font-size: 1.55rem;
+  letter-spacing: -0.02em;
+  margin-top: 2.6rem;
+  padding-top: 0.4rem;
+}
+.markdown h3 {
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
+  margin-top: 1.9rem;
+}
+.markdown > h1 + p {
+  font-size: 1.1rem;
+  color: var(--ikh-muted);
+}
+.markdown a:not(.button) {
+  text-decoration-color: color-mix(in srgb, var(--ifm-color-primary) 40%, transparent);
+  text-underline-offset: 3px;
+}
+.markdown hr {
+  margin: 2.5rem 0;
+}
+
+/* code */
+code {
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.3rem;
+  padding: 0.08em 0.35em;
+}
+pre code,
+.theme-code-block code {
+  border: 0;
+  padding: 0;
+}
+.theme-code-block {
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.65rem;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+div[class*='codeBlockTitle'] {
+  border-bottom: 1px solid var(--ikh-line) !important;
+  font-size: 0.8rem;
+}
+
+/* tables */
+.markdown table {
   display: table;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.65rem;
+  overflow: hidden;
+  font-size: 0.92rem;
 }
-[data-theme='dark'] table thead tr {
-  background-color: #1f2124;
-  border-bottom: 1px solid #2b2f33;
+.markdown table th {
+  background: var(--ikh-surface-2);
+  font-weight: 600;
+  text-align: left;
 }
-[data-theme='dark'] table tr {
-  border-top: 1px solid #2b2f33;
-  background-color: #1c1e22;
+.markdown table th,
+.markdown table td {
+  border: 0;
+  border-bottom: 1px solid var(--ikh-line);
+  padding: 0.65rem 0.85rem;
+}
+.markdown table tr:last-child td {
+  border-bottom: 0;
+}
+.markdown table tr {
+  background: transparent !important;
+  border: 0;
 }
 
-/* Diagram figures: a card matching the app's own Table/EmptyState treatment (nb-925 bg, nb-850 border, rounded-xl). */
+/* admonitions */
+.alert {
+  border: 1px solid var(--ikh-line);
+  border-left-width: 3px;
+  border-radius: 0.65rem;
+  box-shadow: none;
+  background: var(--ikh-surface);
+  color: var(--ifm-font-color-base);
+}
+.alert--info {
+  --ifm-alert-border-color: #2563eb;
+}
+.alert--success {
+  --ifm-alert-border-color: #15803d;
+}
+.alert--warning {
+  --ifm-alert-border-color: #b45309;
+}
+.alert--danger {
+  --ifm-alert-border-color: #b91c1c;
+}
+.alert--secondary {
+  --ifm-alert-border-color: var(--ikh-muted);
+}
+.admonition code {
+  white-space: normal;
+}
+
+/* pager and breadcrumbs */
+.pagination-nav__link {
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.75rem;
+  transition: border-color 0.15s;
+}
+.pagination-nav__link:hover {
+  border-color: var(--ifm-color-primary);
+}
+.pagination-nav__sublabel {
+  font-size: 0.78rem;
+}
+.breadcrumbs__link {
+  background: transparent;
+  font-size: 0.82rem;
+}
+
+/* footer */
+.footer {
+  border-top: 1px solid var(--ikh-line);
+  font-size: 0.9rem;
+}
+.footer__title {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.footer__copyright {
+  font-size: 0.82rem;
+  opacity: 0.8;
+}
+
+/* ---------- figures ---------- */
+
+.ikh-figure {
+  margin: 2rem 0;
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.9rem;
+  background: var(--ikh-surface);
+  overflow: hidden;
+}
+.ikh-figure__stage {
+  padding: 1rem 1.1rem 0.6rem;
+  margin: 0 auto;
+}
+.ikh-figure__stage svg,
+.ikh-fig {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--ifm-font-family-base);
+}
+.ikh-figure__caption {
+  margin: 0;
+  padding: 0.7rem 1.1rem 0.85rem;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--ikh-muted);
+  border-top: 1px solid var(--ikh-line);
+  background: var(--ikh-surface-2);
+}
+/* A figure may be wider than the text: it breaks out of the reading column on big screens. */
+@media (min-width: 1200px) {
+  .ikh-figure--wide {
+    margin-left: -2.5rem;
+    margin-right: -2.5rem;
+  }
+}
+
+/* screenshots */
+.ikh-shot {
+  margin: 2rem 0;
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.9rem;
+  overflow: hidden;
+  background: var(--ikh-surface);
+}
+.ikh-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ikh-shot figcaption {
+  padding: 0.7rem 1.1rem 0.85rem;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--ikh-muted);
+  border-top: 1px solid var(--ikh-line);
+  background: var(--ikh-surface-2);
+}
+
+/* the older diagram cards stay readable until every page has moved to figures */
 .diagram-figure {
   margin: 1.5rem 0;
   border-radius: 0.75rem;
   overflow: hidden;
-  border: 1px solid var(--ifm-toc-border-color, #e2e2e2);
-  background: var(--ifm-background-surface-color, #fff);
+  border: 1px solid var(--ikh-line);
+  background: var(--ikh-surface);
 }
 .diagram-figure img,
 .diagram-figure svg {
@@ -94,11 +371,12 @@
   margin: 0;
   padding: 0.6rem 1rem;
   font-size: 0.85rem;
-  color: var(--ifm-color-emphasis-600);
-  border-top: 1px solid var(--ifm-toc-border-color, #e2e2e2);
+  color: var(--ikh-muted);
+  border-top: 1px solid var(--ikh-line);
 }
 
-/* Tier chips used inline in prose to match the app's own cloud / edge / far-edge vocabulary. */
+/* ---------- small things used in prose ---------- */
+
 .tier-chip {
   display: inline-flex;
   align-items: center;
@@ -113,6 +391,89 @@
 .tier-chip--edge { color: var(--ct-tier-edge); }
 .tier-chip--far { color: var(--ct-tier-far); }
 
-.admonition code {
-  white-space: normal;
+/* "You should see": a short statement of what is on screen after a step */
+.ikh-see {
+  margin: 1.25rem 0;
+  padding: 0.85rem 1.1rem;
+  border: 1px solid var(--ikh-line);
+  border-left: 3px solid var(--ifm-color-primary);
+  border-radius: 0.65rem;
+  background: var(--ikh-surface);
+}
+.ikh-see > :first-child { margin-top: 0; }
+.ikh-see > :last-child { margin-bottom: 0; }
+.ikh-see__label {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ifm-color-primary);
+  margin-bottom: 0.35rem;
+}
+
+/* a row of cards used on hub pages */
+.ikh-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 1.75rem 0;
+}
+.ikh-card {
+  display: block;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--ikh-line);
+  border-radius: 0.9rem;
+  background: var(--ikh-surface);
+  color: var(--ifm-font-color-base) !important;
+  text-decoration: none !important;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.ikh-card:hover {
+  border-color: var(--ifm-color-primary);
+  transform: translateY(-1px);
+}
+.ikh-card__kicker {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ifm-color-primary);
+}
+.ikh-card__title {
+  display: block;
+  margin: 0.2rem 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--ifm-heading-color);
+}
+.ikh-card__text {
+  display: block;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--ikh-muted);
+}
+
+/* the "step N of M" strip at the top of a journey page */
+.ikh-stepbar {
+  display: flex;
+  gap: 0.3rem;
+  margin: -0.2rem 0 0.4rem;
+}
+.ikh-stepbar span {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ikh-line);
+}
+.ikh-stepbar span[data-state='done'] { background: var(--ifm-color-primary); opacity: 0.45; }
+.ikh-stepbar span[data-state='now'] { background: var(--ifm-color-primary); }
+.ikh-stepmeta {
+  font-size: 0.82rem;
+  color: var(--ikh-muted);
+  margin-bottom: 1.2rem;
+}
+
+@media (max-width: 996px) {
+  article .markdown > h1:first-child { font-size: 1.9rem; }
 }
