@@ -352,8 +352,12 @@ func (h *Hub) Connect(stream ikhnosv1.AgentService_ConnectServer) error {
 			v.Connected = false
 		}
 		h.Mu.Unlock()
-		h.persist(context.Background(), agent.ID, true)
-		h.persistFlows(context.Background(), agent.ID, true)
+		// Saved with a deadline of its own: when the database is struggling is when many agents disconnect at once (a rolling restart),
+		// and a save that never returns would hold a goroutine, and the one connection to the database, for each of them.
+		sctx, cancel := context.WithTimeout(context.Background(), disconnectSaveTimeout)
+		defer cancel()
+		h.persist(sctx, agent.ID, true)
+		h.persistFlows(sctx, agent.ID, true)
 		log.Info("agent disconnected")
 	}()
 
@@ -963,6 +967,9 @@ func (h *Hub) persist(ctx context.Context, id string, force bool) {
 		h.Log.Error("snapshot save failed", "agent", id, "err", err)
 	}
 }
+
+// disconnectSaveTimeout bounds what is saved when an agent's stream ends.
+const disconnectSaveTimeout = 10 * time.Second
 
 func FlowsKey(agentID string) string { return agentID + "#flows" }
 
