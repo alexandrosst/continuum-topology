@@ -18,15 +18,19 @@ import (
 // ConfigFor builds the Config for one agent: what it may send, how often to check itself, and what
 // to measure. It also records which targets were issued. The caller must not hold h.mu.
 func (h *Hub) ConfigFor(a store.Agent, v *View) *ikhnosv1.Config {
-	cfg, _ := h.configForChecked(a, v)
+	cfg, ts, _ := h.compileFor(a, v)
+	h.Mu.Lock()
+	adoptConfig(v, cfg, ts)
+	h.Mu.Unlock()
 	return cfg
 }
 
-// configForChecked is ConfigFor, and says whether the Config is complete: false when the cluster has link pairs and the
+// compileFor builds the Config for one agent and the targets in it, and changes nothing the server keeps about the agent: what it
+// built is adopted (adoptConfig) only for a Config that is sent. It says whether the Config is complete: false when the cluster has link pairs and the
 // organisation's agents could not be read, so the peer list is empty for want of data and not because nobody is paired. A caller
 // that replaces a Config the agent already has must not send an incomplete one: the agent would drop every peer until the next
 // good minute.
-func (h *Hub) configForChecked(a store.Agent, v *View) (*ikhnosv1.Config, bool) {
+func (h *Hub) compileFor(a store.Agent, v *View) (*ikhnosv1.Config, []connectivity.IssuedTarget, bool) {
 	complete := true
 	set := h.C.Settings()
 	resync := int32(set.ConsistencyMinutes * 60)
@@ -62,18 +66,23 @@ func (h *Hub) configForChecked(a store.Agent, v *View) (*ikhnosv1.Config, bool) 
 	facts.DerivedTargets = connectivity.DeriveTargets(v.Flows)
 
 	cfg, ts := connectivity.CompileConfig(facts)
+	return cfg, ts, complete
+}
+
+// adoptConfig records a Config the agent is being sent: the targets it issues, its hash, and (by forgetting the paths of targets
+// it no longer issues) what the agent will stop measuring. The caller holds h.Mu. It is done only for a Config that is sent: an
+// agent that was not sent this one still measures what the last one named, and its results must still be accepted.
+func adoptConfig(v *View, cfg *ikhnosv1.Config, ts []connectivity.IssuedTarget) {
 	v.Targets = map[string]connectivity.IssuedTarget{}
 	for _, t := range ts {
 		v.Targets[t.ID] = t
 	}
 	v.CfgHash = cfg.Digest
-	// forget paths for targets that are no longer issued
 	for id := range v.Paths {
 		if _, ok := v.Targets[id]; !ok {
 			delete(v.Paths, id)
 		}
 	}
-	return cfg, complete
 }
 
 // PushConfigs sends a fresh Config to every live stream whose configuration changed.
@@ -108,21 +117,15 @@ func (h *Hub) PushOne(id string) {
 	if err != nil || a.Status != store.StatusApproved {
 		return
 	}
-	h.Mu.Lock()
-	old := v.CfgHash
-	h.Mu.Unlock()
-	cfg, complete := h.configForChecked(a, v)
+	cfg, ts, complete := h.compileFor(a, v)
 	if !complete {
-		// Not a Config to send: its peer list is empty only for want of data. The agent keeps the peers it has, the hash is put
-		// back so nothing counts as sent, and the next minute tries again. (At first connect the agent has nothing to lose, so
-		// ConfigFor still answers there.)
-		h.Mu.Lock()
-		v.CfgHash = old
-		h.Mu.Unlock()
+		// Not a Config to send: its peer list is empty only for want of data. The agent keeps the peers it has, nothing is
+		// adopted, and the next minute tries again. (At first connect the agent has nothing to lose, so ConfigFor still answers
+		// there.)
 		return
 	}
 	h.Mu.Lock()
-	same := v.CfgHash == old
+	same := v.CfgHash == cfg.Digest
 	h.Mu.Unlock()
 	if same {
 		return
@@ -130,12 +133,10 @@ func (h *Hub) PushOne(id string) {
 	select {
 	case s.Push <- &ikhnosv1.ServerMessage{Msg: &ikhnosv1.ServerMessage_Config{Config: cfg}}:
 		h.Mu.Lock()
+		adoptConfig(v, cfg, ts)
 		v.CfgSentAt = h.C.Now()
 		h.Mu.Unlock()
-	default: // the stream is busy; the next refresh tries again
-		h.Mu.Lock()
-		v.CfgHash = old
-		h.Mu.Unlock()
+	default: // the stream is busy; the next refresh tries again, and nothing about the agent changed
 	}
 }
 

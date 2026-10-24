@@ -46,10 +46,9 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 
 	real := r.hub.C.Store
 	r.hub.C.Store = testkit.AgentsDown{Store: real}
-	if _, complete := r.hub.configForChecked(second, sv); complete {
+	if _, _, complete := r.hub.compileFor(second, sv); complete {
 		t.Error("a Config built without the agents is reported as complete")
 	}
-	sv.CfgHash = sent
 	r.hub.PushOne(second.ID)
 	select {
 	case m := <-push:
@@ -60,7 +59,7 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 		t.Error("the Config that was not sent is remembered as sent, so the retry would find nothing to do")
 	}
 	// A cluster in no pair is unaffected by the failure: it does not read the agents at all.
-	if _, complete := r.hub.configForChecked(store.Agent{ID: "ag-x", Status: store.StatusApproved, ClusterID: "cl-x"}, newV("10.5.0.1")); !complete {
+	if _, _, complete := r.hub.compileFor(store.Agent{ID: "ag-x", Status: store.StatusApproved, ClusterID: "cl-x"}, newV("10.5.0.1")); !complete {
 		t.Error("a cluster with no pair needs no agents list")
 	}
 
