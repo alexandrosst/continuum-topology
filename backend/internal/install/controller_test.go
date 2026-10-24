@@ -1,6 +1,9 @@
 package install
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -144,5 +147,67 @@ func TestTheTokenIsInTheSecretsCommandAndNowhereElse(t *testing.T) {
 	inst, _ := ControllerInstall{Chart: "oci://x/ikhnos-controller", MaxTier: 2}.Render()
 	if strings.Contains(m, token) || strings.Contains(inst, token) {
 		t.Error("the token reached the resource or the controller's install")
+	}
+}
+
+// The install asks the cluster whether the controller is there, and installs only when it is not. Run by a shell, with a stand-in for helm
+// that records what it was asked and says the release is there (or is not).
+func TestTheControllerIsInstalledOnlyWhenTheClusterHasNone(t *testing.T) {
+	c := ControllerInstall{Chart: "oci://reg.example/ikhnos-controller", Version: "1.2.3", MaxTier: 1, Registry: "reg.example"}
+	cmd, err := c.RenderIfAbsent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := c.Render()
+	for _, present := range []bool{true, false} {
+		dir := t.TempDir()
+		log := filepath.Join(dir, "calls")
+		script := "#!/bin/sh\necho \"$*\" >> " + log + "\nif [ \"$1\" = status ]; then echo 'Error: release: not found' >&2; exit " + map[bool]string{true: "0", false: "1"}[present] + "; fi\n"
+		if err := os.WriteFile(filepath.Join(dir, "helm"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		sh := exec.Command("sh", "-c", cmd)
+		sh.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+		out, err := sh.CombinedOutput()
+		if err != nil {
+			t.Fatalf("present=%v: %v\n%s", present, err, out)
+		}
+		raw, _ := os.ReadFile(log)
+		calls := strings.Split(strings.TrimSpace(string(raw)), "\n")
+		installed := len(calls) == 2 && strings.HasPrefix(calls[1], "install ikhnos-controller oci://reg.example/ikhnos-controller")
+		if !strings.HasPrefix(calls[0], "status ikhnos-controller --namespace ikhnos-system") {
+			t.Errorf("present=%v: the first call was %q", present, calls[0])
+		}
+		if strings.Contains(string(out), "not found") {
+			t.Errorf("present=%v: what helm status says is shown:\n%s", present, out)
+		}
+		if present && (len(calls) != 1 || !strings.Contains(string(out), "already installed")) {
+			t.Errorf("a controller that is there was touched, or nothing said so: %q\n%s", calls, out)
+		}
+		if !present && !installed {
+			t.Errorf("no controller was installed: %q", calls)
+		}
+		if !present && !strings.Contains(strings.Join(calls, "\n"), "--set maxAccessTier=1") {
+			t.Errorf("the install lost its values: %q", calls)
+		}
+	}
+	// The install inside is the install alone, line for line.
+	for _, line := range strings.Split(plain, "\n") {
+		if !strings.Contains(cmd, line) {
+			t.Errorf("%q is not in\n%s", line, cmd)
+		}
+	}
+	// A failing install fails the block, so what is chained after it does not run.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "helm"), []byte("#!/bin/sh\n[ \"$1\" = status ] && exit 1\nexit 7\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sh := exec.Command("sh", "-c", Chain([]string{cmd, "echo ran-after"}))
+	sh.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	if out, err := sh.CombinedOutput(); err == nil || strings.Contains(string(out), "ran-after") {
+		t.Errorf("a failed install did not stop the chain: %v\n%s", err, out)
+	}
+	if _, err := (ControllerInstall{Chart: "oci://x/c", MaxTier: 3}).RaiseCeiling(); err == nil {
+		t.Error("a tier above the highest was written")
 	}
 }

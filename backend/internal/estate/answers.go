@@ -194,6 +194,9 @@ type controllerDoc struct {
 	Install         string `json:"install"`
 	Manifest        string `json:"manifest"`
 	ManifestCommand string `json:"manifestCommand"`
+	// Install leaves a controller that is already installed as it is (it asks the cluster); Raise is the command that raises the ceiling of
+	// one that is, for a resource it refused.
+	Raise string `json:"raise"`
 	// MaxTier is the access tier the controller is given permission for, and the most a resource may ask for.
 	MaxTier   int    `json:"maxTier"`
 	Namespace string `json:"namespace"`

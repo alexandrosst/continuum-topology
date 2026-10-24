@@ -186,9 +186,12 @@ func (h *API) controllerSteps(r *http.Request, img kernel.ImageConfig, secret st
 	}
 	steps := [3]string{}
 	var err error
-	if steps[0], err = (install.ControllerInstall{Chart: ref, Version: version, MaxTier: tier, Registry: registry}).Render(); err == nil {
-		if steps[1], err = install.ControllerTokenSecretCommand(secret); err == nil {
-			doc.Manifest, err = res.Manifest(install.DefaultNamespace)
+	ctl := install.ControllerInstall{Chart: ref, Version: version, MaxTier: tier, Registry: registry}
+	if doc.Raise, err = ctl.RaiseCeiling(); err == nil {
+		if steps[0], err = ctl.RenderIfAbsent(); err == nil {
+			if steps[1], err = install.ControllerTokenSecretCommand(secret); err == nil {
+				doc.Manifest, err = res.Manifest(install.DefaultNamespace)
+			}
 		}
 	}
 	if err == nil {
@@ -196,7 +199,7 @@ func (h *API) controllerSteps(r *http.Request, img kernel.ImageConfig, secret st
 	}
 	if err != nil {
 		h.For(r).Log.Error("the controller steps cannot be written", "err", err)
-		doc.Manifest = ""
+		doc.Manifest, doc.Raise = "", ""
 		doc.Reason = "The resource cannot be written for this server's settings; the helm command is the way to install this agent."
 		return doc
 	}

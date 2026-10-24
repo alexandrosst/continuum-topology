@@ -30,7 +30,8 @@ const CONTROLLER = {
   reason: '',
   namespace: 'ikhnos-system',
   maxTier: 2,
-  install: 'helm install ikhnos-controller oci://r.example/ikhnos-controller \\\n  --set maxAccessTier=2',
+  install: 'if helm status ikhnos-controller --namespace ikhnos-system >/dev/null 2>&1; then\n  echo present\nelse\n  helm install ikhnos-controller oci://r.example/ikhnos-controller \\\n  --set maxAccessTier=2\nfi',
+  raise: 'helm upgrade ikhnos-controller oci://r.example/ikhnos-controller --namespace ikhnos-system --reset-then-reuse-values --set maxAccessTier=2',
   secret: "kubectl apply --server-side -f - <<'IKHNOS_SECRET'\nstringData:\n  token: \"ikh_x\"\nIKHNOS_SECRET",
   manifest: 'kind: IkhnosAgent\n',
   manifestCommand: "kubectl apply -f - <<'YAML'\nkind: IkhnosAgent\nYAML",
@@ -171,6 +172,10 @@ describe('ConnectClusterWizard: the same install as a resource for the controlle
     // The token is in the Secret's command and in no other.
     expect(order.map((e) => e.textContent?.includes('ikh_x'))).toEqual([false, true, false])
     expect(steps).toHaveTextContent('maxAccessTier=2')
+    // A controller that is there is left alone, and the command for a ceiling too low is the server's, not a placeholder.
+    expect(screen.getByTestId('controller-install')).toHaveTextContent('helm status ikhnos-controller')
+    expect(screen.getByTestId('controller-raise').textContent).toBe(CONTROLLER.raise)
+    expect(steps).not.toHaveTextContent('<chart>')
   })
 
   test('goes back to the helm command', async () => {
@@ -184,7 +189,7 @@ describe('ConnectClusterWizard: the same install as a resource for the controlle
   test('says why there is nothing to run when the server cannot name the controller chart', async () => {
     createToken.mockResolvedValue({
       token: 'ikh_x', install: SERVED, meta: { id: 't1', name: 'cluster-1', tier: 2, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() },
-      controller: { available: false, reason: 'This server has no image registry configured.', namespace: 'ikhnos-system', maxTier: 2, install: '', secret: '', manifest: '', manifestCommand: '' },
+      controller: { available: false, reason: 'This server has no image registry configured.', namespace: 'ikhnos-system', maxTier: 2, install: '', raise: '', secret: '', manifest: '', manifestCommand: '' },
     })
     const user = await made()
     await user.click(screen.getByTestId('install-tab-controller'))
@@ -198,11 +203,13 @@ describe('ConnectClusterWizard: the same install as a resource for the controlle
   test('names the ceiling the controller was given', async () => {
     createToken.mockResolvedValue({
       token: 'ikh_x', install: SERVED, meta: { id: 't1', name: 'cluster-1', tier: 1, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() },
-      controller: { ...CONTROLLER, maxTier: 1 },
+      controller: { ...CONTROLLER, maxTier: 1, install: CONTROLLER.install.replace('=2', '=1'), raise: CONTROLLER.raise.replace('=2', '=1') },
     })
     const user = await made()
     await user.click(screen.getByTestId('install-tab-controller'))
     expect(await screen.findByTestId('controller-steps')).toHaveTextContent('access tier 1 and no more')
-    expect(screen.getByTestId('controller-steps')).toHaveTextContent('--set maxAccessTier=1')
+    expect(screen.getByTestId('controller-install')).toHaveTextContent('--set maxAccessTier=1')
+    expect(screen.getByTestId('controller-raise')).toHaveTextContent('--set maxAccessTier=1')
+    expect(screen.getByTestId('controller-steps')).toHaveTextContent('lower ceiling than tier 1')
   })
 })

@@ -674,6 +674,7 @@ export interface ControllerDoc {
   install: string
   manifest: string
   manifestCommand: string
+  raise: string
   maxTier: number
   namespace: string
   reason: string

@@ -161,6 +161,13 @@ func TestAControllerViewIsOfferedWhenTheControllersChartCanBeNamed(t *testing.T)
 			t.Errorf("%q is not in the controller's install:\n%s", want, str("install"))
 		}
 	}
+	// The cluster is asked first, so a controller that is there is left alone; and a refused ceiling has its own command.
+	if !strings.HasPrefix(str("install"), "if helm status ikhnos-controller --namespace ikhnos-system ") || !strings.HasSuffix(str("install"), "\nfi") {
+		t.Errorf("the install does not ask the cluster first:\n%s", str("install"))
+	}
+	if want := "helm upgrade ikhnos-controller oci://reg.example/team/ikhnos-controller --version 0.0.0-edge.abc --namespace ikhnos-system --reset-then-reuse-values --set maxAccessTier=1"; str("raise") != want {
+		t.Errorf("the command that raises the ceiling:\n%s", str("raise"))
+	}
 	for _, want := range []string{"kind: IkhnosAgent", `address: "ik.example.com:8443"`, "accessTier: 1", "nodeProbe: true", `namespaces: ["shop"]`, "purgeIdentityOnDelete: true",
 		`repository: "reg.example/team/ikhnos"`, "name: ikhnos-enrollment"} {
 		if !strings.Contains(str("manifest"), want) {
@@ -201,7 +208,7 @@ func TestAControllerViewIsNotOfferedWithoutAChartToInstallItFrom(t *testing.T) {
 		if c["available"] != false || !strings.Contains(c["reason"].(string), "registry") {
 			t.Errorf("%s: %v", name, c)
 		}
-		for _, k := range []string{"install", "secret", "manifest", "manifestCommand"} {
+		for _, k := range []string{"install", "raise", "secret", "manifest", "manifestCommand"} {
 			if c[k] != "" {
 				t.Errorf("%s: %s = %q", name, k, c[k])
 			}

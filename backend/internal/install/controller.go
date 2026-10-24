@@ -175,6 +175,36 @@ func (c ControllerInstall) Render() (string, error) {
 		Values: values, Layout: Wrapped}.Render()
 }
 
+// RenderIfAbsent is the install that leaves a controller that is already there alone. The page cannot know whether the cluster has one (the
+// controller never talks to the server, and the cluster is not connected yet), so the command asks the cluster: `helm status` of the
+// release says, and only when there is none does it install. A controller that is there is not changed, whatever ceiling it was given;
+// RaiseCeiling is the command for that, when the resource is refused for it.
+func (c ControllerInstall) RenderIfAbsent() (string, error) {
+	installCmd, err := c.Render()
+	if err != nil {
+		return "", err
+	}
+	said := fmt.Sprintf("%s is already installed in %s; leaving it as it is (a resource that asks for access tier %d is refused if its ceiling is lower)", ControllerRelease, DefaultNamespace, c.MaxTier)
+	var b strings.Builder
+	b.WriteString("if helm status " + Arg(ControllerRelease) + " --namespace " + Arg(DefaultNamespace) + " >/dev/null 2>&1; then\n")
+	b.WriteString("  echo " + Quote(said) + "\n")
+	b.WriteString("else\n")
+	for _, line := range strings.Split(installCmd, "\n") {
+		b.WriteString("  " + line + "\n")
+	}
+	b.WriteString("fi")
+	return b.String(), nil
+}
+
+// RaiseCeiling is the command that raises the ceiling of a controller that is already installed, keeping the rest of what it was given.
+func (c ControllerInstall) RaiseCeiling() (string, error) {
+	if c.MaxTier < 0 || c.MaxTier > 2 {
+		return "", fmt.Errorf("install: the access tier %d is not 0, 1 or 2", c.MaxTier)
+	}
+	return Helm{Verb: Upgrade, Release: ControllerRelease, Chart: c.Chart, Version: c.Version, Namespace: DefaultNamespace, ResetThenReuse: true,
+		Values: []Value{Set("maxAccessTier", strconv.Itoa(c.MaxTier))}, Layout: OneLine}.Render()
+}
+
 // ControllerTokenSecretCommand is the command that creates the Secret the resource names, holding the token. The token is read from the
 // manifest on standard input, never from an argument (see Secret).
 func ControllerTokenSecretCommand(token string) (string, error) {

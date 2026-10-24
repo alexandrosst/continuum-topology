@@ -22,7 +22,7 @@ export default function ControllerSteps({ c }: { c: ControllerDoc }) {
       title: '1. Install the controller',
       note: (
         <>
-          Skip this if it is already running in <code className="font-mono">{c.namespace}</code>. It installs the <code className="font-mono">IkhnosAgent</code> resource definition with it, and is given permission for access tier {c.maxTier} and no more.
+          It asks the cluster first and leaves a controller that is already installed in <code className="font-mono">{c.namespace}</code> as it is. Otherwise it installs the <code className="font-mono">IkhnosAgent</code> resource definition with it, and gives it permission for access tier {c.maxTier} and no more.
         </>
       ),
       text: c.install,
@@ -59,10 +59,15 @@ export default function ControllerSteps({ c }: { c: ControllerDoc }) {
           <p className="mt-1.5 text-xs text-nb-500">{s.note}</p>
         </div>
       ))}
-      <p className="text-xs text-nb-500">
-        A controller that is already installed with a lower ceiling than tier {c.maxTier} refuses this resource and says so in its status; raise it with{' '}
-        <code className="font-mono">helm upgrade ikhnos-controller &lt;chart&gt; --reset-then-reuse-values --set maxAccessTier={c.maxTier}</code>.
-      </p>
+      {c.raise && (
+        <div>
+          <div className="mb-1 flex items-center justify-between text-xs text-nb-400">
+            <span>A controller that is already installed with a lower ceiling than tier {c.maxTier} refuses this resource and says so in its status. Raise it with:</span>
+            <CopyButton text={c.raise} label="Copy command" />
+          </div>
+          <pre className="whitespace-pre-wrap break-all rounded-md border border-nb-850 bg-nb-950 px-3 py-3 font-mono text-xs leading-relaxed text-nb-300" data-testid="controller-raise">{c.raise}</pre>
+        </div>
+      )}
     </div>
   )
 }
