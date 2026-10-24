@@ -708,19 +708,30 @@ func (c *Service) ChangePassword(ctx context.Context, p Principal, current, next
 	if err := c.Store.SetPassword(ctx, u.ID, hash, false); err != nil {
 		return err
 	}
-	_ = c.Store.DeleteUserSessions(ctx, u.ID, p.SessionHash)
+	var left []string // what the change could not end; the person is told, and the audit row says it
+	if err := c.Store.DeleteUserSessions(ctx, u.ID, p.SessionHash); err != nil {
+		c.Log.Error("password changed but the other sessions could not be signed out", "user", u.ID, "err", err)
+		left = append(left, "the other sessions")
+	}
 	// A personal token is a standing copy of the account's power, issued while the old password was in force.
 	// A password change is the person's answer to "someone else may have it", so it signs out every other
 	// session (above) and ends every token as well; the person mints new ones when they want them.
 	n, terr := c.revokeAPITokens(ctx, u.ID)
 	if terr != nil {
 		c.Log.Error("password changed but not every personal API token could be revoked", "user", u.ID, "err", terr)
+		left = append(left, "the personal API tokens")
 	}
 	detail := ""
 	if n > 0 {
 		detail = fmt.Sprintf("%d personal API token(s) revoked", n)
 	}
+	if len(left) > 0 {
+		detail = strings.TrimSpace(detail + " (could not end " + strings.Join(left, " and ") + ")")
+	}
 	c.auditUser(ctx, u, "password-changed", detail, "")
+	if len(left) > 0 {
+		return kernel.Errf(kernel.KindInternal, "your password was changed, but %s could not be signed out; change it again to finish", strings.Join(left, " and "))
+	}
 	return nil
 }
 
@@ -1347,11 +1358,22 @@ func (c *Service) RecoverPassword(ctx context.Context, username string) (string,
 		if err := c.Store.SetPassword(ctx, u.ID, hash, true); err != nil {
 			return "", err
 		}
-		_ = c.Store.SetDisabled(ctx, u.ID, nil)
-		_ = c.Store.DeleteUserSessions(ctx, u.ID, nil)
-		// Recovery is what follows a suspected compromise (and it re-enables a disabled account), so a personal
-		// token minted before it must not come back to life with the account.
-		_, _ = c.revokeAPITokens(ctx, u.ID)
+		// Recovery is what follows a suspected compromise (and it re-enables a disabled account), so a session or a personal
+		// token from before it must not come back to life with the account, and a step that did not happen is an error.
+		var left []string
+		if err := c.Store.SetDisabled(ctx, u.ID, nil); err != nil {
+			left = append(left, "the account could not be enabled ("+err.Error()+")")
+		}
+		if err := c.Store.DeleteUserSessions(ctx, u.ID, nil); err != nil {
+			left = append(left, "the sessions could not be ended ("+err.Error()+")")
+		}
+		if _, err := c.revokeAPITokens(ctx, u.ID); err != nil {
+			left = append(left, "the personal API tokens could not be revoked ("+err.Error()+")")
+		}
+		if len(left) > 0 {
+			c.auditUser(ctx, u, "password-recovered", "server command line; "+strings.Join(left, "; "), "")
+			return "", fmt.Errorf("the password was set, but %s; run the command again", strings.Join(left, " and "))
+		}
 	}
 	c.auditUser(ctx, u, "password-recovered", "server command line", "")
 	return pw, nil
