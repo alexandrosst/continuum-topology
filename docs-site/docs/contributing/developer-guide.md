@@ -44,34 +44,38 @@ IKHNOS_SERVER=host:8443 IKHNOS_CA_PIN=<pin> IKHNOS_TOKEN=<token> \
 cd backend && go vet ./... && go test -race ./...
 ```
 
-Neo4j-backed tests skip themselves unless `IKHNOS_TEST_NEO4J` is set — you don't need a Neo4j instance running to get a meaningful pass. The frontend has three test suites: pure logic (`npm run test:unit`, plain `node:test`, no DOM), rendered components (`npm run test:ui`, Vitest + React Testing Library + jsdom, in `tests-ui/`), and end-to-end (`npm run test:e2e`, Playwright against a real Chromium browser and the real production build, in `e2e/`) - plus lint (`npm run lint`). All four run in CI on every push and pull request.
+Neo4j-backed tests skip themselves unless `IKHNOS_TEST_NEO4J` is set, so you do not need a Neo4j instance for a meaningful local pass. CI runs them, and it fails when a tool it relies on (`helm`, for example) is missing instead of skipping (`IKHNOS_REQUIRE_TOOLS`). The frontend has three test suites: pure logic (`npm run test:unit`, plain `node:test`, no DOM), rendered components (`npm run test:ui`, Vitest + React Testing Library + jsdom, in `tests-ui/`), and end-to-end (`npm run test:e2e`, Playwright against a real Chromium browser and the real production build, in `e2e/`) - plus lint (`npm run lint`). All four run in CI on every push and pull request.
 
 The e2e suite exists for one specific class of bug the other two structurally can't see: a real infinite render loop born from the interaction between our state and a UI library's own internals (React Flow's selection/store-sync effects, React's own render-loop guard). jsdom doesn't run React Flow's actual drag/selection/store behavior, so a unit or component test never exercises the code path where that kind of bug lives - only a real browser against the real, built app does. `npm run test:e2e` builds the app and runs Playwright against `vite preview` (`playwright.config.ts`'s `webServer`), so `npx playwright install chromium` is a one-time local prerequisite; CI installs it fresh on every run.
 
 ## Where things live
 
 ```
-src/
-  lib/types.ts        Domain model (Cluster, MachineNode, Service, Device, Dependency, Site...)
-  lib/migrate.ts       Schema upgrades and normalization
-  lib/effective.ts     Two-layer values: detected base + human overrides
-  lib/suggestions.ts   What accepting a Discovery suggestion changes
-  lib/advice.ts        The same placement cost function the server runs, kept in sync deliberately
-  components/          UI, grouped by feature area
-  pages/               One file per route
+src/                   The web UI (React, TypeScript, Tailwind)
+  app/                 The shell: routes and layout. Nothing imports it.
+  features/<name>/     One folder per area: its page, components/, lib/ and store/
+  components/, lib/, store/   Shared code. Never imports a feature.
+  lib/generated/wire.ts       Types of what the server sends, generated from Go. Do not edit.
+tests/                 UI logic tests (plain Node)
+tests-ui/              Component tests (Vitest), including architecture.test.tsx
+e2e/                   Browser tests (Playwright)
 
-backend/               Go module "ikhnos" (Go 1.25)
-  proto/               gRPC contract (Enrollment, AgentService)
-  cmd/server           Control plane: CA, enrollment, sync stream, admin JSON API, serves the built UI
-  cmd/ikhnos        The one binary the cluster image runs: ikhnos agent | probe | flow
-  cmd/agent            In-cluster agent (a thin wrapper over the same code)
-  cmd/probe            Optional node probe
-  internal/            pki, store (SQLite), server, agent, probe, facts, interpret, model
-internal/chart         The agent's Helm chart, embedded in the server, served as a .tgz to the wizard
+backend/               Go module "ikhnos" (Go 1.26)
+  cmd/server           The server: CA, agent stream, admin JSON API, serves the built UI
+  cmd/agent            The in-cluster agent
+  cmd/ikhnos           One binary with the agent, probe and flow modes, and the command-line tool
+  cmd/controller       The optional controller for the IkhnosAgent resource
+  cmd/probe, cmd/flow  The node probe and the flow observer
+  proto/               The agent protocol (agent.proto); generated code is in gen/
+  internal/            About sixty packages, in layers. See "Inside Ikhnos: the server".
+  docs/                Design notes that change with the code
+  internal/chart/      The agent, operator and FUSION charts, embedded in the server
 
-deploy/helm/ikhnos-server/   The server's own Helm chart
-docs-site/                       This documentation site (Docusaurus)
+deploy/helm/           The server chart and the controller chart
+docs-site/             This documentation site (Docusaurus)
 ```
+
+The layering rules, and the tests that hold them, are explained in [Inside Ikhnos](../inside/index.md): start with [the server](../inside/server.md) and [the web UI](../inside/frontend.md). When a test named for an architecture rule fails, read its message; do not edit the test to make a change pass.
 
 ## Telemetry doctor
 

@@ -6,10 +6,6 @@ description: The two different things "approve" means in this app, and where eac
 
 # Approvals in depth
 
-:::info[This page is still growing]
-The short version lives in [Using the UI](./using-the-ui.md#approvals) and [Agent trust model](../architecture/agent-trust-model.md) — this page will expand with the full walkthrough (roles, the audit trail entries each approval produces, and the API endpoints behind them) in a future update.
-:::
-
 Two distinct things share the word "approve" in this project, and it's worth not conflating them:
 
 **Approving an agent's enrollment** is a one-time identity check: an administrator reads a short code from the newly-installed agent's own pod log and types it into the UI, confirming that the agent asking to join really is the one running where it's expected. Five wrong attempts reject the request permanently. The full sequence is in [Agent trust model](../architecture/agent-trust-model.md).

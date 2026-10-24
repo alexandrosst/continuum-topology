@@ -24,4 +24,4 @@ Nothing has to be labelled for grouping to work at all — every workload always
 
 An application named this way is the same application everywhere it appears — the same name in a cloud cluster and an edge cluster becomes one node in the topology spanning both, which is what lets a service and the edge instance of it that talks to it show up as one thing rather than two unrelated ones. Only the namespace-name fallback stays local to each cluster, since a name like `default` means nothing shared across clusters.
 
-Got a grouping wrong? The Discovery inbox is where to fix it, not a relabel: accept, correct, or dismiss what it suggests, same as any other discovered grouping.
+Got a grouping wrong? The **Suggestions** tab on the Agents page is where to fix it, not a relabel: accept, correct, or dismiss what it suggests, same as any other discovered grouping.
