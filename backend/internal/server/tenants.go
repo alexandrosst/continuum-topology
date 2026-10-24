@@ -36,11 +36,22 @@ type Platform struct {
 
 	mu      sync.Mutex
 	tenants map[string]*Tenant
+	// loading is the organisations being brought up right now, each by the one caller that is doing it; the others wait for that one
+	// instead of the lock, so a slow organisation does not hold up every other organisation's requests and agents.
+	loading map[string]*tenantLoad
 	ctx     context.Context
 }
 
+type tenantLoad struct {
+	done chan struct{}
+	t    *Tenant
+	err  error
+	// dropped is set when the organisation was deleted while it was being brought up: what was built is stopped, not kept.
+	dropped bool
+}
+
 func NewPlatform(base *Core, geo *agents.Geo) *Platform {
-	return &Platform{BaseAgentService: &agents.BaseAgentService{C: base.Agents}, Base: base, Geo: geo, tenants: map[string]*Tenant{}, ctx: context.Background()}
+	return &Platform{BaseAgentService: &agents.BaseAgentService{C: base.Agents}, Base: base, Geo: geo, tenants: map[string]*Tenant{}, loading: map[string]*tenantLoad{}, ctx: context.Background()}
 }
 
 // Start brings every existing organisation up (restoring what each last knew) and ties all their
@@ -61,13 +72,57 @@ func (p *Platform) Start(ctx context.Context) error {
 	return nil
 }
 
-// Tenant returns the live state of an organisation, creating it the first time it is needed.
+// Tenant returns the live state of an organisation, creating it the first time it is needed. Creating it reads the organisation's whole
+// state from the database, which on a large one takes seconds, so it is done without the lock: another organisation's request, an agent
+// connecting to it, and the metrics scrape do not wait for it. Two callers for the same organisation share one load.
 func (p *Platform) Tenant(ctx context.Context, id string) (*Tenant, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if t := p.tenants[id]; t != nil {
-		return t, nil
+	for {
+		p.mu.Lock()
+		if t := p.tenants[id]; t != nil {
+			p.mu.Unlock()
+			return t, nil
+		}
+		if l := p.loading[id]; l != nil {
+			p.mu.Unlock()
+			select {
+			case <-l.done:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			if l.err == nil {
+				return l.t, nil
+			}
+			// A load that failed because its own caller gave up says nothing about this one: try again.
+			if (errors.Is(l.err, context.Canceled) || errors.Is(l.err, context.DeadlineExceeded)) && ctx.Err() == nil {
+				continue
+			}
+			return nil, l.err
+		}
+		l := &tenantLoad{done: make(chan struct{})}
+		p.loading[id] = l
+		runCtx := p.ctx
+		p.mu.Unlock()
+
+		t, err := p.build(ctx, runCtx, id)
+
+		p.mu.Lock()
+		delete(p.loading, id)
+		if err == nil && l.dropped {
+			t.Hub.DropAll("the organisation was deleted")
+			t.stop()
+			t, err = nil, kernel.Errf(kernel.KindNotFound, "no such organisation")
+		} else if err == nil {
+			p.tenants[id] = t
+		}
+		p.mu.Unlock()
+		l.t, l.err = t, err
+		close(l.done)
+		return t, err
 	}
+}
+
+// build brings one organisation up: its settings, its hub restored from the database, and the hub's background work tied to runCtx.
+func (p *Platform) build(ctx, runCtx context.Context, id string) (*Tenant, error) {
 	if _, err := p.Base.Store.GetOrg(ctx, id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, kernel.Errf(kernel.KindNotFound, "no such organisation")
@@ -83,11 +138,9 @@ func (p *Platform) Tenant(ctx context.Context, id string) (*Tenant, error) {
 		p.Tune(h)
 	}
 	h.Restore(ctx)
-	rctx, cancel := context.WithCancel(p.ctx)
+	rctx, cancel := context.WithCancel(runCtx)
 	go h.Run(rctx)
-	t := &Tenant{ID: id, C: c, Hub: h, stop: cancel}
-	p.tenants[id] = t
-	return t, nil
+	return &Tenant{ID: id, C: c, Hub: h, stop: cancel}, nil
 }
 
 // FlushAll writes every live organisation's write-behind state (tombstones and node identities, which are
@@ -111,6 +164,9 @@ func (p *Platform) drop(id string) {
 	p.mu.Lock()
 	t := p.tenants[id]
 	delete(p.tenants, id)
+	if l := p.loading[id]; l != nil {
+		l.dropped = true
+	}
 	p.mu.Unlock()
 	if t != nil {
 		t.Hub.DropAll("the organisation was deleted")
