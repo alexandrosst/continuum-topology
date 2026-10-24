@@ -178,9 +178,27 @@ type workspaceConflictDoc struct {
 
 // createdTokenDoc answers POST /tokens: the token itself, which is shown once, what is kept of it, and the command that uses it.
 type createdTokenDoc struct {
-	Install string   `json:"install"`
-	Meta    tokenDoc `json:"meta"`
-	Token   string   `json:"token"`
+	// Controller is the same install as a resource for the optional controller, from the same choices as Install.
+	Controller controllerDoc `json:"controller"`
+	Install    string        `json:"install"`
+	Meta       tokenDoc      `json:"meta"`
+	Token      string        `json:"token"`
+}
+
+// controllerDoc is what to run to ask for the agent as an IkhnosAgent resource, in the order to run it: the controller (unless it is
+// already there), the Secret that holds the token, and the resource. The token is in the Secret's command only. Without a chart the
+// controller can be installed from there is nothing to run, and Reason says why.
+type controllerDoc struct {
+	Available bool `json:"available"`
+	// Install, Secret and Manifest are the three commands; Manifest is the resource's own text, ManifestCommand the command that applies it.
+	Install         string `json:"install"`
+	Manifest        string `json:"manifest"`
+	ManifestCommand string `json:"manifestCommand"`
+	// MaxTier is the access tier the controller is given permission for, and the most a resource may ask for.
+	MaxTier   int    `json:"maxTier"`
+	Namespace string `json:"namespace"`
+	Reason    string `json:"reason"`
+	Secret    string `json:"secret"`
 }
 
 // agentTierDoc answers PUT /agents/{id}/tier. HardenHelm is there when the new tier is below what the install allows: the command that

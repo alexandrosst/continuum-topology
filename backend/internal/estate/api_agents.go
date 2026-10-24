@@ -6,6 +6,7 @@ import (
 
 	"ikhnos/internal/agents"
 	"ikhnos/internal/httpkit"
+	"ikhnos/internal/install"
 	"ikhnos/internal/installcfg"
 	"ikhnos/internal/kernel"
 	"ikhnos/internal/operators"
@@ -162,7 +163,46 @@ func (h *API) createToken(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, h.installConfigError(r, err))
 		return
 	}
-	httpkit.WriteJSON(w, 201, createdTokenDoc{Token: secret, Meta: toTokenDoc(t), Install: cmd})
+	ctl := h.controllerSteps(r, img, secret, t.AccessTier, req)
+	httpkit.WriteJSON(w, 201, createdTokenDoc{Token: secret, Meta: toTokenDoc(t), Install: cmd, Controller: ctl})
+}
+
+// controllerSteps writes the install as an IkhnosAgent resource, from the choices the helm command was written from. It cannot fail the
+// request: the token exists and the helm command is the answer, so a step that cannot be written is told as the reason there is no
+// controller view.
+func (h *API) controllerSteps(r *http.Request, img kernel.ImageConfig, secret string, tier int, req createTokenRequest) controllerDoc {
+	doc := controllerDoc{Namespace: install.DefaultNamespace, MaxTier: tier}
+	ref, version := h.Settings.ControllerChart(img)
+	if ref == "" {
+		doc.Reason = "The controller's chart is published to the image registry next to the agent's, and this server has none configured. " +
+			"Set the image registry in Settings → Installation, or install the controller from where you keep its chart."
+		return doc
+	}
+	res := install.AgentResource{Server: h.Settings.AgentAddr, CAPin: h.CAPin(), Tier: tier, Collectors: req.Collectors, Scope: req.Scope, PurgeIdentity: req.PurgeIdentity}
+	registry := ""
+	if img.Configured() {
+		registry = img.Registry
+		res.Image = &install.ResourceImage{Repository: img.Registry + "/ikhnos", Tag: img.Tag, Digest: img.Digest}
+	}
+	steps := [3]string{}
+	var err error
+	if steps[0], err = (install.ControllerInstall{Chart: ref, Version: version, MaxTier: tier, Registry: registry}).Render(); err == nil {
+		if steps[1], err = install.ControllerTokenSecretCommand(secret); err == nil {
+			doc.Manifest, err = res.Manifest(install.DefaultNamespace)
+		}
+	}
+	if err == nil {
+		steps[2], err = res.Apply(install.DefaultNamespace)
+	}
+	if err != nil {
+		h.For(r).Log.Error("the controller steps cannot be written", "err", err)
+		doc.Manifest = ""
+		doc.Reason = "The resource cannot be written for this server's settings; the helm command is the way to install this agent."
+		return doc
+	}
+	doc.Available = true
+	doc.Install, doc.Secret, doc.ManifestCommand = steps[0], steps[1], steps[2]
+	return doc
 }
 
 func (h *API) deleteToken(w http.ResponseWriter, r *http.Request) {

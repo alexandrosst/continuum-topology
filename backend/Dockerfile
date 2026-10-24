@@ -74,7 +74,7 @@ COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
 ARG VERSION=0.1.0-dev
-# CHART_VERSION is the chart version (ikhnos-agent and ikhnos-regional-operator alike) this same pipeline run publishes to the registry (edge:
+# CHART_VERSION is the chart version (ikhnos-agent, ikhnos-regional-operator and ikhnos-controller alike) this same pipeline run publishes to the registry (edge:
 # 0.0.0-edge.<sha>; a tagged release: the tag) - baked only into the server binary, which is the only one that ever
 # prints a `--version` flag for that chart. Left unset (the default, e.g. a local `docker build`), the server falls
 # back to the chart's own Chart.yaml literal instead - see Admin.agentChartVersion's doc comment for why the two
@@ -84,7 +84,7 @@ ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 # The controller is its own binary because it carries the Helm library. It installs the agent chart that is embedded in it at CHART_VERSION
 # (and appVersion VERSION) when those are given, which is what the published agent chart was packaged with.
 RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/ikhnos ./cmd/ikhnos \
- && go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.agentChartVersion=${CHART_VERSION} -X main.operatorChartVersion=${CHART_VERSION}" -o /out/server ./cmd/server \
+ && go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.agentChartVersion=${CHART_VERSION} -X main.operatorChartVersion=${CHART_VERSION} -X main.controllerChartVersion=${CHART_VERSION}" -o /out/server ./cmd/server \
  && go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X ikhnos/internal/cli/agentcontroller.ChartVersion=${CHART_VERSION}" -o /out/controller ./cmd/controller
 
 # The default user of this base image is 65532 (nonroot); nothing here overrides it, so a pod that needs root (the flow

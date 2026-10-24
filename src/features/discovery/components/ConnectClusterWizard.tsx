@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { CheckCircle2, ChevronRight, Loader2, MapPin, Pin } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -16,6 +17,7 @@ import type { AccessTier, Cluster } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
 import ApprovalCard from './ApprovalCard'
+import ControllerSteps from './ControllerSteps'
 
 /**
  * Shown once a wizard-connected cluster has finished its first discovery and still has no place: none of
@@ -173,6 +175,8 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
   const [exc, setExc] = useState<string[]>([])
   const [sel, setSel] = useState('')
   const [created, setCreated] = useState<CreatedToken | null>(null)
+  // How the agent is asked for: the helm command, or the resource for the optional controller. Both are written from the same choices.
+  const [via, setVia] = useState<'helm' | 'controller'>('helm')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   // Whether "More options" is expanded. Seeded from whether anything non-default is already selected (so
@@ -216,6 +220,7 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
 
   const close = () => {
     setCreated(null)
+    setVia('helm')
     setName('')
     setProbe(false)
     setFlows(false)
@@ -419,11 +424,32 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
           />
           {(phase === 'waiting' || phase === 'approve') && (
             <div>
-              <div className="mb-1 flex items-center justify-between text-sm text-nb-300">
-                <span>Run this where you use <code className="font-mono text-xs">kubectl</code> and <code className="font-mono text-xs">helm</code> for the cluster</span>
-                <CopyButton text={created.install} label="Copy command" />
+              <div className="mb-3 flex gap-1 border-b border-nb-850" role="tablist" aria-label="How to install the agent">
+                {([['helm', 'helm'], ['controller', 'kubectl (controller)']] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={via === id}
+                    onClick={() => setVia(id)}
+                    className={clsx('-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors', via === id ? 'border-accent text-nb-300' : 'border-transparent text-nb-400 hover:text-nb-300')}
+                    data-testid={`install-tab-${id}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-              <pre className="whitespace-pre-wrap break-all rounded-md border border-nb-850 bg-nb-950 px-3 py-3 font-mono text-xs leading-relaxed text-nb-300" data-testid="install-command">{created.install}</pre>
+              {via === 'helm' ? (
+                <>
+                  <div className="mb-1 flex items-center justify-between text-sm text-nb-300">
+                    <span>Run this where you use <code className="font-mono text-xs">kubectl</code> and <code className="font-mono text-xs">helm</code> for the cluster</span>
+                    <CopyButton text={created.install} label="Copy command" />
+                  </div>
+                  <pre className="whitespace-pre-wrap break-all rounded-md border border-nb-850 bg-nb-950 px-3 py-3 font-mono text-xs leading-relaxed text-nb-300" data-testid="install-command">{created.install}</pre>
+                </>
+              ) : (
+                <ControllerSteps c={created.controller} />
+              )}
               <p className="mt-2 text-xs text-nb-500">
                 {/nodeProbe\.enabled=true/.test(created.install) && (
                   <>The node probe mounts the host's <code className="font-mono">/sys</code> read-only. If the namespace enforces the Pod Security “baseline” profile, its pods are refused until you run <code className="font-mono">kubectl label namespace ikhnos-system pod-security.kubernetes.io/enforce=privileged --overwrite</code>. </>
@@ -433,8 +459,8 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
                 )}
                 The token works once and expires at {new Date(created.meta.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. It is shown only here and cannot be retrieved later.
               </p>
-              {!imagesConfigured && <div className="mt-3"><NoRegistryNotice newTab /></div>}
-              {(chartFile || !imagesConfigured) && (
+              {via === 'helm' && !imagesConfigured && <div className="mt-3"><NoRegistryNotice newTab /></div>}
+              {via === 'helm' && (chartFile || !imagesConfigured) && (
                 <div className="mt-3 rounded-md border border-nb-850 bg-nb-930 px-3 py-2.5 text-xs text-nb-400" data-testid="install-prereq">
                   <div className="mb-1 font-medium text-nb-200">Before you run it, on the machine that runs helm</div>
                   <ol className="list-decimal space-y-1.5 pl-4">
@@ -452,7 +478,7 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
                   </ol>
                 </div>
               )}
-              {chartRef && (
+              {via === 'helm' && chartRef && (
                 <details className="mt-3 rounded-md border border-nb-850 bg-nb-930 px-3 py-2.5 text-xs text-nb-400" data-testid="install-source">
                   <summary className="cursor-pointer font-medium text-nb-200">{imagesConfigured ? 'Nothing to download or build: this pulls everything from your registry' : 'Where this command pulls the chart from'}</summary>
                   <ul className="mt-2 list-disc space-y-1 pl-4">

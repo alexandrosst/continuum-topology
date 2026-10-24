@@ -44,6 +44,8 @@ export interface TokenInstallOptions {
 export interface CreatedToken {
   token: string
   install: string
+  /** The same install as an IkhnosAgent for the optional controller, from the same choices: three things to run, in order, when `available`. The token is in `secret` only. */
+  controller: W.ControllerDoc
   meta: { id: string; name: string; tier: number; createdAt: string; expiresAt: string }
 }
 

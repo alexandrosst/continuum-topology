@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"ikhnos/internal/install"
 	"ikhnos/internal/kernel"
 )
 
@@ -93,6 +94,63 @@ func TestThePublicAddressIsAPrefixOrNothing(t *testing.T) {
 	} {
 		if got := (Settings{PublicURL: in}).PublicBase(); got != want {
 			t.Errorf("PublicBase(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The controller's chart is found the way the operator's is, and unlike the other two it is nowhere in this binary: no reference is no
+// controller, never a file to download.
+func TestTheControllerChartIsOnlyEverNamedWhereItIsKnownToBe(t *testing.T) {
+	for ref, want := range map[string]string{
+		"oci://ghcr.io/acme/charts/ikhnos-agent":         "oci://ghcr.io/acme/charts/ikhnos-controller",
+		"https://charts.example.com/stable/ikhnos-agent": "https://charts.example.com/stable/ikhnos-controller",
+		"acme/ikhnos-agent":                              "acme/ikhnos-controller",
+		"ikhnos-agent":                                   "ikhnos-controller",
+		"./ikhnos-agent-0.4.0.tgz":                       "",
+		"oci://ghcr.io/acme/charts/not-ikhnos-agent":     "",
+		"local": "",
+	} {
+		if got := (Settings{ChartRef: ref}).ControllerRef(kernel.ImageConfig{}); got != want {
+			t.Errorf("controller chart for %q = %q, want %q", ref, got, want)
+		}
+	}
+	if got := (Settings{}).ControllerRef(kernel.ImageConfig{Registry: "ghcr.io/me"}); got != "oci://ghcr.io/me/ikhnos-controller" {
+		t.Errorf("from the registry: %q", got)
+	}
+	if got := (Settings{}).ControllerRef(kernel.ImageConfig{}); got != "" {
+		t.Errorf("with no registry there is no chart to name: %q", got)
+	}
+}
+
+func TestTheControllerVersionIsTheOneThePipelinePublishedOrNone(t *testing.T) {
+	img := kernel.ImageConfig{Registry: "ghcr.io/me"}
+	if _, v := (Settings{ControllerChartVersion: "0.0.0-edge.abc"}).ControllerChart(img); v != "0.0.0-edge.abc" {
+		t.Errorf("version %q", v)
+	}
+	// Not the agent's, which is a different chart's: a guess here would name a version that may not exist.
+	if _, v := (Settings{AgentChartVersion: "1.2.3"}).ControllerChart(img); v != "" {
+		t.Errorf("the agent chart's version was used for the controller's: %q", v)
+	}
+}
+
+// What the install command is made of is what the resource is held to: AgentValues is the one list.
+func TestTheAgentInstallCommandIsMadeOfAgentValues(t *testing.T) {
+	s := Settings{AgentAddr: "srv:8443", ImageRegistry: "reg.example"}
+	img := s.Images(nil)
+	extra := []install.Value{install.Set("nodeProbe.enabled", "true")}
+	cmd, err := s.AgentInstallCommand(img, "sha256/pin", "tok", 1, extra...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, version := s.AgentChart(img)
+	want, err := install.Helm{Verb: install.Install, Release: "ikhnos-agent", Chart: ref, Version: version, Namespace: "ikhnos-system", CreateNamespace: true,
+		Values: s.AgentValues(img, "sha256/pin", "tok", 1, extra...), Layout: install.Wrapped}.Render()
+	if err != nil || cmd != want {
+		t.Fatalf("%v\n%s\nwant\n%s", err, cmd, want)
+	}
+	for _, w := range []string{"server.address=srv:8443", "enrollment.key=sha256/pin.tok", "access.tier=1", "image.repository=reg.example/ikhnos", "nodeProbe.enabled=true"} {
+		if !strings.Contains(cmd, w) {
+			t.Errorf("%q is not in\n%s", w, cmd)
 		}
 	}
 }

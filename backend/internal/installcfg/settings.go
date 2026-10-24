@@ -45,6 +45,10 @@ type Settings struct {
 	// OperatorChartVersion is ikhnos-regional-operator's own equivalent of AgentChartVersion above - the
 	// version the release pipeline published this build's regional-operator chart under, when known.
 	OperatorChartVersion string
+	// ControllerChartVersion is the version the release pipeline published the optional ikhnos-controller chart under, when known. The
+	// controller chart is not carried in this binary (a registry is the only place it comes from), so there is no Chart.yaml here to
+	// fall back to: unknown, the command leaves --version out and Helm takes the registry's latest release.
+	ControllerChartVersion string
 	// PublicURL is the address operators and people outside the cluster reach this server at (scheme and host, and a
 	// path prefix if it has one), such as https://ikhnos.example.com. Empty means "whatever host the request came in
 	// on", which is wrong for anyone who reached the page through a port-forward or an internal name.
@@ -86,6 +90,14 @@ const ChartDefaultAccessTier = 2
 // chart's own defaults.
 func (s Settings) AgentInstallCommand(img kernel.ImageConfig, caPin, secret string, tier int, extra ...install.Value) (string, error) {
 	ref, version := s.AgentChart(img)
+	return install.Helm{Verb: install.Install, Release: "ikhnos-agent", Chart: ref, Version: version, Namespace: "ikhnos-system", CreateNamespace: true,
+		Values: s.AgentValues(img, caPin, secret, tier, extra...), Layout: install.Wrapped}.Render()
+}
+
+// AgentValues are the Helm values of the install command: what every install has (the server, the one flag that holds the CA pin and
+// the token, the access tier when it is not the chart's, the image) and then what the person chose to switch on or narrow. A resource
+// for the controller is held to the same values (see controller's tests).
+func (s Settings) AgentValues(img kernel.ImageConfig, caPin, secret string, tier int, extra ...install.Value) []install.Value {
 	// enrollment.key packs the CA pin and the one-time token into the single flag the chart splits back apart at
 	// render time (see ikhnos-agent's _helpers.tpl): one thing to paste instead of two, without hiding either
 	// value's own text - the pin is the CA's public-key pin (sha256/<base64>, which survives re-issuing the CA
@@ -107,9 +119,7 @@ func (s Settings) AgentInstallCommand(img kernel.ImageConfig, caPin, secret stri
 		}
 	}
 	// What the person chose to switch on or narrow, after what every install has.
-	values = append(values, extra...)
-	return install.Helm{Verb: install.Install, Release: "ikhnos-agent", Chart: ref, Version: version, Namespace: "ikhnos-system", CreateNamespace: true,
-		Values: values, Layout: install.Wrapped}.Render()
+	return append(values, extra...)
 }
 
 // AgentUpgradeCommand is what the owner of a cluster runs there to change the ceiling of an agent's install to a tier: raise it
@@ -169,20 +179,33 @@ func (s Settings) AgentRef(img kernel.ImageConfig) string {
 func (s Settings) OperatorChartFile() string { return chart.RegionalOperator.Filename() }
 
 func (s Settings) OperatorRef(img kernel.ImageConfig) string {
+	return s.siblingRef(img, "ikhnos-regional-operator")
+}
+
+// ControllerRef is the controller chart's address, by the same rules as OperatorRef: published next to the agent chart under its own name
+// (oci://<registry>/ikhnos-controller), or derived from an explicit --chart-ref that names the agent chart. Unlike the other two charts
+// it is not carried in this binary, so with no registry to name there is no reference at all: "" means the controller cannot be
+// installed from here.
+func (s Settings) ControllerRef(img kernel.ImageConfig) string {
+	return s.siblingRef(img, "ikhnos-controller")
+}
+
+// siblingRef is where a chart published next to the agent chart under name is.
+func (s Settings) siblingRef(img kernel.ImageConfig, name string) string {
 	switch {
 	case s.ChartRef == "local":
 		return ""
 	case s.ChartRef != "":
 		ref := strings.TrimSpace(s.ChartRef)
 		if strings.HasSuffix(ref, ".tgz") {
-			return "" // a packaged agent chart: the operator's is the file this server serves
+			return "" // a packaged agent chart: the other's is the file this server serves, or none
 		}
 		if i := strings.LastIndexByte(ref, '/'); ref[i+1:] == "ikhnos-agent" {
-			return ref[:i+1] + "ikhnos-regional-operator"
+			return ref[:i+1] + name
 		}
-		return "" // not recognisably the agent chart's address: serve the operator chart file instead of guessing
+		return "" // not recognisably the agent chart's address: serve the file instead of guessing
 	case img.Configured():
-		return "oci://" + OCIBase(img.Registry) + "/ikhnos-regional-operator"
+		return "oci://" + OCIBase(img.Registry) + "/" + name
 	}
 	return ""
 }
@@ -250,6 +273,12 @@ func (s Settings) OperatorChart(img kernel.ImageConfig) (ref, version string) {
 		version = s.OperatorVersion()
 	}
 	return ref, version
+}
+
+// ControllerChart is where the controller chart is and the version to fetch (empty when not known), or "" for the reference when this
+// server cannot name it.
+func (s Settings) ControllerChart(img kernel.ImageConfig) (ref, version string) {
+	return s.ControllerRef(img), s.ControllerChartVersion
 }
 
 // publicBase is PublicURL cleaned up for use as a prefix ("" when it is not set, or is not an http(s) URL with a host).

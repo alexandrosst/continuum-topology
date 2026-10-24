@@ -66,7 +66,7 @@ func TestAnswersThatWereMapsAreWrittenAsTheyWere(t *testing.T) {
 		{"workspace saved with a note", workspaceSavedDoc{Rev: 3, UpdatedAt: "u", UpdatedBy: "b", Note: "n"},
 			map[string]any{"rev": int64(3), "updatedAt": "u", "updatedBy": "b", "note": "n"}},
 		{"workspace conflict", workspaceConflictDoc{Error: "e", Rev: 3, UpdatedAt: "u", UpdatedBy: "b"}, map[string]any{"error": "e", "rev": int64(3), "updatedAt": "u", "updatedBy": "b"}},
-		{"created token", createdTokenDoc{Token: "s", Meta: tokenDoc{ID: "i"}, Install: "helm"}, map[string]any{"token": "s", "meta": tokenDoc{ID: "i"}, "install": "helm"}},
+		{"created token", createdTokenDoc{Token: "s", Meta: tokenDoc{ID: "i"}, Install: "helm"}, map[string]any{"token": "s", "meta": tokenDoc{ID: "i"}, "install": "helm", "controller": controllerDoc{}}},
 		{"agent tier", agentTierDoc{AccessTier: 1, InstalledTier: 2}, map[string]any{"accessTier": 1, "installedTier": 2}},
 		{"agent tier with the command", agentTierDoc{AccessTier: 1, InstalledTier: 2, HardenHelm: "helm"}, map[string]any{"accessTier": 1, "installedTier": 2, "hardenHelm": "helm"}},
 		{"address tests", addressTestsDoc{Tests: []connectivity.AddressTestDoc{tests}}, map[string]any{"tests": []connectivity.AddressTestDoc{tests}}},

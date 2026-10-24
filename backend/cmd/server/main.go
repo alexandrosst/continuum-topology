@@ -48,6 +48,10 @@ var agentChartVersion = ""
 // operator install command would name the Chart.yaml literal, which the registry does not hold for an edge build.
 var operatorChartVersion = ""
 
+// controllerChartVersion is the same for the optional ikhnos-controller chart, which this binary does not carry: the version the pipeline
+// published it under. Unset, the install command for it leaves --version out.
+var controllerChartVersion = ""
+
 type multi []string
 
 func (m *multi) String() string     { return strings.Join(*m, ",") }
@@ -408,7 +412,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), Origins: origins, UIDir: uiDir, Version: version,
 		Settings: installcfg.Settings{AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef,
 			ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, PublicURL: os.Getenv("IKHNOS_PUBLIC_URL"),
-			AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}}
+			AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion, ControllerChartVersion: controllerChartVersion}}
 	if err := admin.CheckInstallConfig(); err != nil {
 		return err
 	}

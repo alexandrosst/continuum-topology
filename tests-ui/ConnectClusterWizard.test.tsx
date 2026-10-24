@@ -25,11 +25,21 @@ vi.mock('@/lib/api', async (importOriginal) => {
 })
 
 const NONE = { collectors: { nodeProbe: false, flowObserver: false, measurements: false }, scope: { namespaces: [], exclude: [], selector: '' }, purgeIdentity: false }
+const CONTROLLER = {
+  available: true,
+  reason: '',
+  namespace: 'ikhnos-system',
+  maxTier: 2,
+  install: 'helm install ikhnos-controller oci://r.example/ikhnos-controller \\\n  --set maxAccessTier=2',
+  secret: "kubectl apply --server-side -f - <<'IKHNOS_SECRET'\nstringData:\n  token: \"ikh_x\"\nIKHNOS_SECRET",
+  manifest: 'kind: IkhnosAgent\n',
+  manifestCommand: "kubectl apply -f - <<'YAML'\nkind: IkhnosAgent\nYAML",
+}
 const SERVED = 'helm install ikhnos-agent oci://r.example/ikhnos-agent \\\n  --namespace ikhnos-system \\\n  --set enrollment.key=PIN.ikh_x'
 
 beforeEach(() => {
   createToken.mockReset()
-  createToken.mockResolvedValue({ token: 'ikh_x', install: SERVED, meta: { id: 't1', name: 'cluster-1', tier: 2, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() } })
+  createToken.mockResolvedValue({ token: 'ikh_x', install: SERVED, controller: CONTROLLER, meta: { id: 't1', name: 'cluster-1', tier: 2, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() } })
 })
 
 const wizard = (props: { nodeProbe?: boolean } = {}) =>
@@ -130,5 +140,69 @@ describe('ConnectClusterWizard: what is sent for the command', () => {
     await create(user)
     expect(await screen.findByText('the traffic observer needs access tier 2 or higher')).toBeInTheDocument()
     expect(screen.queryByTestId('install-command')).not.toBeInTheDocument()
+  })
+})
+
+describe('ConnectClusterWizard: the same install as a resource for the controller', () => {
+  const made = async () => {
+    const user = userEvent.setup()
+    wizard()
+    await create(user)
+    await screen.findByTestId('install-command')
+    return user
+  }
+
+  test('opens on the helm command and offers the controller beside it', async () => {
+    await made()
+    expect(screen.getByTestId('install-tab-helm')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('install-tab-controller')).toHaveAttribute('aria-selected', 'false')
+    expect(screen.queryByTestId('controller-steps')).not.toBeInTheDocument()
+  })
+
+  test('shows the three things to run, in order, as the server wrote them', async () => {
+    const user = await made()
+    await user.click(screen.getByTestId('install-tab-controller'))
+    const steps = await screen.findByTestId('controller-steps')
+    expect(screen.queryByTestId('install-command')).not.toBeInTheDocument()
+    const order = ['controller-install', 'controller-secret', 'controller-manifest'].map((id) => screen.getByTestId(id))
+    expect(order.map((e) => e.textContent)).toEqual([CONTROLLER.install, CONTROLLER.secret, CONTROLLER.manifestCommand])
+    // In the order the page lists them, top to bottom.
+    for (let i = 1; i < order.length; i++) expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // The token is in the Secret's command and in no other.
+    expect(order.map((e) => e.textContent?.includes('ikh_x'))).toEqual([false, true, false])
+    expect(steps).toHaveTextContent('maxAccessTier=2')
+  })
+
+  test('goes back to the helm command', async () => {
+    const user = await made()
+    await user.click(screen.getByTestId('install-tab-controller'))
+    await user.click(screen.getByTestId('install-tab-helm'))
+    expect(screen.getByTestId('install-command').textContent).toBe(SERVED)
+    expect(screen.queryByTestId('controller-steps')).not.toBeInTheDocument()
+  })
+
+  test('says why there is nothing to run when the server cannot name the controller chart', async () => {
+    createToken.mockResolvedValue({
+      token: 'ikh_x', install: SERVED, meta: { id: 't1', name: 'cluster-1', tier: 2, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() },
+      controller: { available: false, reason: 'This server has no image registry configured.', namespace: 'ikhnos-system', maxTier: 2, install: '', secret: '', manifest: '', manifestCommand: '' },
+    })
+    const user = await made()
+    await user.click(screen.getByTestId('install-tab-controller'))
+    expect(await screen.findByTestId('controller-unavailable')).toHaveTextContent('This server has no image registry configured.')
+    expect(screen.queryByTestId('controller-steps')).not.toBeInTheDocument()
+    // The way that works is still there.
+    await user.click(screen.getByTestId('install-tab-helm'))
+    expect(screen.getByTestId('install-command').textContent).toBe(SERVED)
+  })
+
+  test('names the ceiling the controller was given', async () => {
+    createToken.mockResolvedValue({
+      token: 'ikh_x', install: SERVED, meta: { id: 't1', name: 'cluster-1', tier: 1, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() },
+      controller: { ...CONTROLLER, maxTier: 1 },
+    })
+    const user = await made()
+    await user.click(screen.getByTestId('install-tab-controller'))
+    expect(await screen.findByTestId('controller-steps')).toHaveTextContent('access tier 1 and no more')
+    expect(screen.getByTestId('controller-steps')).toHaveTextContent('--set maxAccessTier=1')
   })
 })

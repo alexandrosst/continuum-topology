@@ -668,6 +668,17 @@ export interface ConsistencyDoc {
   summary?: string
 }
 
+export interface ControllerDoc {
+  available: boolean
+  install: string
+  manifest: string
+  manifestCommand: string
+  maxTier: number
+  namespace: string
+  reason: string
+  secret: string
+}
+
 export interface CreateAPITokenRequest {
   name: string
 }
@@ -1016,6 +1027,7 @@ export interface EstateCreateTokenRequest {
 }
 
 export interface EstateCreatedTokenDoc {
+  controller: ControllerDoc
   install: string
   meta: EstateTokenDoc
   token: string
