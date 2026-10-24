@@ -198,6 +198,7 @@ export interface AgentUpgradeDoc {
   secretCommand: string
   secrets: CredentialSecretDoc[]
   problems: string[]
+  controller: ControllerUpgradeDoc
 }
 
 export interface AgentUpgradeRequest {
@@ -677,6 +678,13 @@ export interface ControllerDoc {
   namespace: string
   reason: string
   secret: string
+}
+
+export interface ControllerUpgradeDoc {
+  command: string
+  patch: string
+  needsTelemetryPermission: boolean
+  problems: string[]
 }
 
 export interface CreateAPITokenRequest {

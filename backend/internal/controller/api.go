@@ -53,6 +53,10 @@ type Spec struct {
 	// PurgeIdentityOnDelete makes deleting the resource also delete the agent's identity Secret, which an uninstall keeps by default.
 	PurgeIdentityOnDelete bool       `json:"purgeIdentityOnDelete,omitempty"`
 	Image                 *ImageSpec `json:"image,omitempty"`
+	// Telemetry is what the agent collects and where it sends it: the Telemetry panel's settings, in a resource's words. It is the whole
+	// of the agent's telemetry (what it does not say is the chart's default), so a resource without it is an agent without. A
+	// controller installed without allowTelemetry refuses a resource that asks for any.
+	Telemetry *install.ResourceTelemetry `json:"telemetry,omitempty"`
 }
 
 // ServerSpec is the server the agent enrols with: what the Connect page prints as server.address and the CA pin in enrollment.key.
@@ -108,7 +112,17 @@ func (s Spec) Problems() []string {
 			p = append(p, err.Error())
 		}
 	}
+	if s.Telemetry != nil {
+		for _, m := range s.Telemetry.Problems(s.tier(), s.Collectors.Measurements) {
+			p = append(p, "spec.telemetry: "+m)
+		}
+	}
 	return p
+}
+
+// AsksForTelemetry is whether the resource turns any telemetry signal on.
+func (s Spec) AsksForTelemetry() bool {
+	return s.Telemetry != nil && s.Telemetry.Signals != (install.ResourceSignals{})
 }
 
 func (s Spec) tier() int {
@@ -162,5 +176,13 @@ func (s Spec) Values(token string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return install.HelmValues(append(vs, choices...))
+	vs = append(vs, choices...)
+	if s.Telemetry != nil {
+		tv, err := s.Telemetry.Values(s.tier(), s.Collectors.Measurements)
+		if err != nil {
+			return nil, err
+		}
+		vs = append(vs, tv...)
+	}
+	return install.HelmValues(vs)
 }

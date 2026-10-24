@@ -29,6 +29,15 @@ rules:
   - apiGroups: [apps]
     resources: [deployments, daemonsets]
     verbs: [get, list, watch, create, update, patch, delete]
+{{- if .Values.allowTelemetry }}
+  # Telemetry (allowTelemetry): the collectors' configuration and the policy that lets them send.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+{{- end }}
   # The identity purge is a post-delete hook Job; Helm watches it until it finishes.
   - apiGroups: [batch]
     resources: [jobs]
@@ -133,6 +142,31 @@ rules:
   - apiGroups: [security.istio.io]
     resources: [peerauthentications]
     verbs: [get, list]
+{{- end }}
+{{- if .Values.allowTelemetry }}
+  # Telemetry (allowTelemetry): what the agent's telemetry ClusterRole and Kepler's grant. The collectors read these cluster-wide, so the
+  # controller has to hold them to create the roles. (The pods are read at tier 2 too; the rules are held as the roles state them.)
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [nodes/stats]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [nodes, namespaces, pods, replicationcontrollers, resourcequotas, services]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list, watch]
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

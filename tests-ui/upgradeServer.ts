@@ -8,10 +8,11 @@ export const upgradeCalls: AgentUpgradeRequest[] = []
 
 /** The command the stand-in answers: it says which request it is for, so a test can tell an answer to the draft on screen from another. */
 export const answerTo = (req: AgentUpgradeRequest) => `stub-command ${JSON.stringify(req)}`
+export const patchTo = (req: AgentUpgradeRequest) => `stub-patch ${JSON.stringify(req)}`
 
 export async function answer(_conn: unknown, req: AgentUpgradeRequest): Promise<AgentUpgradeAnswer> {
   upgradeCalls.push(req)
-  return { command: answerTo(req), upgrade: answerTo(req), secretCommand: '', secrets: [], problems: [] }
+  return { command: answerTo(req), upgrade: answerTo(req), secretCommand: '', secrets: [], problems: [], controller: { command: patchTo(req), patch: patchTo(req), needsTelemetryPermission: !!req.telemetry, problems: [] } }
 }
 
 export const lastUpgrade = (): AgentUpgradeRequest => {

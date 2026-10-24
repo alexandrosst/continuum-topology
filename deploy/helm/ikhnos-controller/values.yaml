@@ -27,6 +27,14 @@ agent:
 # An IkhnosAgent that asks for a tier above it is refused with a message, not trimmed.
 maxAccessTier: 2
 
+# Whether an IkhnosAgent may turn telemetry on (spec.telemetry). It is off because the agent's telemetry collectors need cluster-wide reads
+# the access tier does not give (the pods, nodes, workloads and events they watch), and the same rule applies: the controller can only
+# create the agent's ClusterRole for them if it holds what the role grants. On, the controller holds those reads and may also create the
+# ConfigMaps and NetworkPolicies the telemetry makes; off, an IkhnosAgent that turns a signal on is refused with a message, not trimmed.
+# Before turning this off again, remove spec.telemetry from the resource and let the controller upgrade the agent: it needs the
+# permissions to take the telemetry's objects away.
+allowTelemetry: false
+
 # How long one install, upgrade or uninstall (with its hooks) may take.
 timeout: 5m
 

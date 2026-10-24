@@ -41,6 +41,9 @@ spec:
   collectors: {nodeProbe: true}
   scope: {namespaces: [shop, payments]}
   purgeIdentityOnDelete: false
+  telemetry:                               # optional; needs allowTelemetry (below)
+    signals: {resourceUsage: true, kubernetesState: true}
+    destination: {endpoint: otel.example.com:4317, authSecret: otlp-token}
 YAML
 
 kubectl -n ikhnos-system get ikhnosagents
@@ -56,6 +59,7 @@ The agent then appears on the server's page for approval, as any agent does. Del
 | `agent.image.repository`, `agent.image.tag` | `ikhnos/ikhnos`, the agent chart's appVersion | The agent image the controller installs unless a resource names its own (`spec.image`). |
 | `agent.linkImage.repository` | `ikhnos/link` | The cluster-link image. |
 | `maxAccessTier` | `2` | The highest tier a resource may ask for, and the most the controller holds permissions for (below). |
+| `allowTelemetry` | `false` | Whether a resource may turn telemetry on (`spec.telemetry`); on, the controller holds the reads the telemetry collectors need (below). |
 | `timeout` | `5m` | How long one install, upgrade or uninstall (with its hooks) may take. |
 
 ## Permissions
@@ -63,6 +67,12 @@ The agent then appears on the server's page for approval, as any agent does. Del
 Kubernetes lets nobody create a ClusterRole that grants what they do not hold. To install an agent at tier 2 the controller therefore holds, cluster-wide, everything tier 2 reads (pods, services, workloads, ingresses, mesh policy); at tier 1 what tier 1 reads (nodes and classes); at tier 0 the name of one namespace. `maxAccessTier` is how to hold less: the chart renders only the rules up to it, and the controller refuses a resource that asks for more. A test renders the agent chart for every choice a resource can make and holds this chart's rules to it in both directions (nothing the agent chart creates is out of reach, nothing is held that nothing asks for).
 
 It also holds, in its own namespace, Secrets (Helm keeps its release records there, and the token and the agent's identity are Secrets) and the kinds the agent chart makes; and, in the `default` namespace, the one small Role and binding the agent chart puts there.
+
+### Telemetry
+
+`spec.telemetry` is the Telemetry panel's draft in a resource's words: the signals, where each comes from, the scope, the destination (or one per kind of signal), the processing and the owner stamp. A resource states all of the agent's telemetry: the controller installs the chart again with only what the resource says (the install is `ResetValues`), so a `helm upgrade` of this release is put back, and the panel's `kubectl (controller)` tab patches the resource instead. Credentials are never in it: a destination names the Secret it is read from, the same Secret the panel's command creates. Extra processors and a regional operator as the destination are not on a resource yet; the panel says so and the helm command stays.
+
+Telemetry is off by default in the chart, because its collectors read the pods, nodes, workloads and events cluster-wide, and the agent's ClusterRole for them can be created only by someone who holds what it grants. With `allowTelemetry: true` the controller holds those reads, and may create the ConfigMaps and NetworkPolicies telemetry makes; with it off, a resource that turns a signal on is refused with a message. Take `spec.telemetry` out of a resource (and let the controller upgrade) before turning `allowTelemetry` off again, since removing telemetry's objects needs the permissions too. The same test as above holds these rules to the agent chart rendered for every telemetry choice, in both directions.
 
 ## Removing
 

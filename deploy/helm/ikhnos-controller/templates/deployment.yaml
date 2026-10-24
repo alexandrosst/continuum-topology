@@ -42,6 +42,7 @@ spec:
           imagePullPolicy: {{ include "controller.pullPolicy" . }}
           args:
             - --max-access-tier={{ .Values.maxAccessTier }}
+            - --allow-telemetry={{ .Values.allowTelemetry | default false }}
             - --timeout={{ .Values.timeout }}
           env:
             - name: POD_NAMESPACE

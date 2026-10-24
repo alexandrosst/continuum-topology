@@ -89,6 +89,9 @@ func (u AgentUpgrade) helm() Helm {
 	return h
 }
 
+// TargetNamespace is the namespace the command acts in: the one given when it is a plain name, the default otherwise.
+func (u AgentUpgrade) TargetNamespace() string { return u.helm().Namespace }
+
 // Render is the command, or the reason there is none to write: the head says what is upgraded in one line, and the telemetry (which
 // sets a great many values) follows on lines of its own.
 func (u AgentUpgrade) Render() (string, error) {

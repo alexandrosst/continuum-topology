@@ -666,3 +666,87 @@ func TestAControllerGivenLessThanTheTopTierInstallsNothingAboveIt(t *testing.T) 
 		t.Fatalf("status %+v", g.status("a"))
 	}
 }
+
+func specWithTelemetry(tel map[string]any) map[string]any {
+	s := goodSpec()
+	s["telemetry"] = tel
+	return s
+}
+
+var someTelemetry = map[string]any{
+	"signals":     map[string]any{"resourceUsage": true, "kubernetesEvents": true},
+	"destination": map[string]any{"endpoint": "otel.example.com:4317", "authSecret": "otel-token"},
+}
+
+func TestAControllerNotGivenTelemetryRefusesAResourceThatTurnsItOnAndSaysSo(t *testing.T) {
+	g := newRig(t)
+	g.secret("enroll", "token", "ikh_abc")
+	g.agent("a", specWithTelemetry(someTelemetry))
+	g.must("a")
+	st := g.status("a")
+	if st.Phase != PhaseInvalid || !strings.Contains(st.Conditions[0].Message, "allowTelemetry") || g.inst.applies() != 0 {
+		t.Fatalf("status %+v, applies %d", st, g.inst.applies())
+	}
+	// A resource that only names telemetry with every signal off asks for none, and is installed.
+	g.setSpec("a", specWithTelemetry(map[string]any{"signals": map[string]any{}}))
+	g.must("a")
+	if g.status("a").Phase != PhaseReady || g.inst.applies() != 1 {
+		t.Fatalf("status %+v, applies %d", g.status("a"), g.inst.applies())
+	}
+	if _, ok := g.inst.lastApplied()["telemetry"]; ok {
+		t.Fatalf("telemetry values with no signal on: %v", g.inst.lastApplied()["telemetry"])
+	}
+}
+
+func TestAControllerGivenTelemetryInstallsItAndTakesItAwayWhenTheResourceNoLongerAsks(t *testing.T) {
+	g := newRig(t)
+	g.r.AllowTelemetry = true
+	g.secret("enroll", "token", "ikh_abc")
+	g.agent("a", specWithTelemetry(someTelemetry))
+	g.must("a")
+	if g.status("a").Phase != PhaseReady {
+		t.Fatalf("status %+v", g.status("a"))
+	}
+	tel := g.inst.lastApplied()["telemetry"].(map[string]any)
+	if tel["resourceUsage"].(map[string]any)["metrics"].(map[string]any)["enabled"] != true ||
+		tel["export"].(map[string]any)["otlp"].(map[string]any)["endpoint"] != "otel.example.com:4317" {
+		t.Fatalf("telemetry values %v", tel)
+	}
+	// The credential is named, never carried: the Secret's name is a value, and nothing else of it is.
+	if a := tel["export"].(map[string]any)["otlp"].(map[string]any)["auth"].(map[string]any); a["secretName"] != "otel-token" {
+		t.Fatalf("auth %v", a)
+	}
+	// The resource stops asking: the next upgrade is installed whole, with no telemetry in it (values are not reused).
+	g.setSpec("a", goodSpec())
+	g.must("a")
+	if _, ok := g.inst.lastApplied()["telemetry"]; ok || g.inst.applies() != 2 {
+		t.Fatalf("telemetry %v, applies %d", g.inst.lastApplied()["telemetry"], g.inst.applies())
+	}
+}
+
+func TestTelemetryThatCannotBeInstalledIsInvalidWithTheReasonAndInstallsNothing(t *testing.T) {
+	g := newRig(t)
+	g.r.AllowTelemetry = true
+	g.secret("enroll", "token", "ikh_abc")
+	for name, tel := range map[string]map[string]any{
+		"no destination":          {"signals": map[string]any{"resourceUsage": true}},
+		"cluster links at tier 1": {"signals": map[string]any{"clusterLinks": true}, "destination": map[string]any{"endpoint": "x:1"}},
+	} {
+		spec := specWithTelemetry(tel)
+		spec["accessTier"] = int64(1)
+		if name == "no destination" {
+			spec["accessTier"] = int64(2)
+		}
+		g.agent(name2obj(name), spec)
+		g.must(name2obj(name))
+		st := g.status(name2obj(name))
+		if st.Phase != PhaseInvalid || !strings.Contains(st.Conditions[0].Message, "spec.telemetry") {
+			t.Errorf("%s: %+v", name, st)
+		}
+	}
+	if g.inst.applies() != 0 {
+		t.Fatalf("applies %d", g.inst.applies())
+	}
+}
+
+func name2obj(s string) string { return strings.ReplaceAll(s, " ", "-") }

@@ -64,6 +64,7 @@ func Main(args []string) int {
 	imageTag := fs.String("agent-image-tag", cli.Env("IKHNOS_AGENT_IMAGE_TAG", ""), "the agent image's tag; empty: the chart's appVersion")
 	linkRepo := fs.String("link-image-repository", cli.Env("IKHNOS_LINK_IMAGE_REPOSITORY", ""), "the cluster-link image's repository, when not the chart's own")
 	maxTier := fs.Int("max-access-tier", cli.Atoi(cli.Env("IKHNOS_MAX_ACCESS_TIER", "2")), "the highest access tier (0, 1 or 2) an IkhnosAgent may ask for: what the controller was given the permissions for")
+	allowTelemetry := fs.Bool("allow-telemetry", cli.Env("IKHNOS_ALLOW_TELEMETRY", "false") == "true", "whether an IkhnosAgent may turn telemetry on: what the controller was given the permissions for")
 	timeout := fs.Duration("timeout", helminstall.DefaultTimeout, "how long one install, upgrade or uninstall may take")
 	health := fs.String("health-addr", cli.Env("IKHNOS_HEALTH_ADDR", ":8081"), "where /healthz answers; empty: nowhere")
 	kubeconfig := fs.String("kubeconfig", "", "development only: use this kubeconfig instead of the in-cluster service account")
@@ -99,7 +100,7 @@ func Main(args []string) int {
 	if ChartVersion != "" {
 		inst.Version, inst.AppVersion = ChartVersion, cli.Version
 	}
-	r := &controller.Reconciler{Dyn: dyn, Kube: kube, Installer: inst, Namespace: *ns, Log: log, Defaults: Defaults(*imageRepo, *imageTag, *linkRepo), MaxTier: maxTier}
+	r := &controller.Reconciler{Dyn: dyn, Kube: kube, Installer: inst, Namespace: *ns, Log: log, Defaults: Defaults(*imageRepo, *imageTag, *linkRepo), MaxTier: maxTier, AllowTelemetry: *allowTelemetry}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

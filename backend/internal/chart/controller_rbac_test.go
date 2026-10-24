@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	"ikhnos/internal/controller"
+	"ikhnos/internal/install"
 )
 
 // The controller installs the agent chart as a Helm release, and Kubernetes lets nobody create a Role or a ClusterRole that grants
@@ -74,8 +75,32 @@ func controllerChart() string {
 	return filepath.Join("..", "..", "..", "deploy", "helm", "ikhnos-controller")
 }
 
-// agentObjects renders the agent chart the way the controller would install it for these choices.
-func agentObjects(t *testing.T, tier int, nodeProbe, flow, measure, purge bool) []object {
+// choice is one thing an IkhnosAgent can ask for.
+type choice struct {
+	tier                            int
+	nodeProbe, flow, measure, purge bool
+	// telemetry turns on every signal the resource can, so that every object and permission telemetry makes is in the render.
+	telemetry bool
+}
+
+func (c choice) String() string {
+	return fmt.Sprintf("tier %d probe=%v flow=%v measure=%v purge=%v telemetry=%v", c.tier, c.nodeProbe, c.flow, c.measure, c.purge, c.telemetry)
+}
+
+// everyTelemetry is a resource's telemetry with every signal the choice can have on: cluster links need the traffic observer's tier,
+// and network latency the measurements.
+func everyTelemetry(c choice) *install.ResourceTelemetry {
+	return &install.ResourceTelemetry{
+		Signals: install.ResourceSignals{ResourceUsage: true, Energy: true, KubernetesState: true, NodeRuntime: true, NetworkLatency: c.measure, ClusterLinks: c.tier >= 2,
+			ApplicationMetrics: true, SystemLogs: true, KubernetesEvents: true, ApplicationLogs: true, Traces: true, Accelerators: true},
+		ClusterLinks: &install.ResourceClusterLinks{Probe: true, Throughput: true},
+		Destination:  &install.ResourceDestination{Endpoint: "otel.example.com:4317", AuthSecret: "otel-token"},
+	}
+}
+
+// agentObjects renders the agent chart the way the controller would install it for these choices. The telemetry ones are rendered from
+// the values a resource makes (controller.Spec.Values), so that the test holds the controller to what it really installs.
+func agentObjects(t *testing.T, c choice) []object {
 	t.Helper()
 	b, err := Package()
 	if err != nil {
@@ -86,34 +111,60 @@ func agentObjects(t *testing.T, tier int, nodeProbe, flow, measure, purge bool) 
 	if err := writeFile(tgz, b); err != nil {
 		t.Fatal(err)
 	}
+	if c.telemetry {
+		spec := controller.Spec{
+			Server: controller.ServerSpec{Address: "a.example:8443", CAPin: "sha256/ab"}, AccessTier: &c.tier,
+			Collectors:            install.Collectors{NodeProbe: c.nodeProbe, FlowObserver: c.flow, Measurements: c.measure},
+			PurgeIdentityOnDelete: c.purge, Telemetry: everyTelemetry(c),
+		}
+		vals, err := spec.Values("t")
+		if err != nil {
+			t.Fatalf("%s: %v", c, err)
+		}
+		j, err := json.Marshal(vals)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f := filepath.Join(dir, "values.json")
+		if err := writeFile(f, j); err != nil {
+			t.Fatal(err)
+		}
+		return helmObjects(t, tgz, "-f", f)
+	}
 	args := append([]string{}, baseSet...)
-	args = append(args, "--set", fmt.Sprintf("access.tier=%d", tier))
-	for _, c := range []struct {
+	args = append(args, "--set", fmt.Sprintf("access.tier=%d", c.tier))
+	for _, k := range []struct {
 		on  bool
 		key string
-	}{{nodeProbe, "nodeProbe.enabled"}, {flow, "flowObserver.enabled"}, {measure, "measurements.enabled"}, {purge, "identity.purgeOnUninstall"}} {
-		if c.on {
-			args = append(args, "--set", c.key+"=true")
+	}{{c.nodeProbe, "nodeProbe.enabled"}, {c.flow, "flowObserver.enabled"}, {c.measure, "measurements.enabled"}, {c.purge, "identity.purgeOnUninstall"}} {
+		if k.on {
+			args = append(args, "--set", k.key+"=true")
 		}
 	}
 	return helmObjects(t, tgz, args...)
 }
 
-// choices is every combination of choices an IkhnosAgent can make that the chart accepts, at each tier.
-func choices() (out []struct {
-	tier                            int
-	nodeProbe, flow, measure, purge bool
-}) {
+// choices is every combination of choices an IkhnosAgent can make that the chart accepts, at each tier, and the telemetry ones.
+func choices() (out []choice) {
 	for tier := 0; tier <= 2; tier++ {
 		for mask := 0; mask < 16; mask++ {
 			np, fl, me, pu := mask&1 != 0, mask&2 != 0, mask&4 != 0, mask&8 != 0
 			if np && tier < 1 || fl && tier < 2 || me && tier < 2 {
 				continue // the resource refuses these (install.AgentChoices)
 			}
-			out = append(out, struct {
-				tier                            int
-				nodeProbe, flow, measure, purge bool
-			}{tier, np, fl, me, pu})
+			out = append(out, choice{tier: tier, nodeProbe: np, flow: fl, measure: me, purge: pu})
+		}
+		// Telemetry: with none of the collectors, and with all of those the tier allows.
+		out = append(out, choice{tier: tier, telemetry: true})
+		out = append(out, choice{tier: tier, nodeProbe: tier >= 1, flow: tier >= 2, measure: tier >= 2, purge: true, telemetry: true})
+	}
+	return out
+}
+
+func telemetryChoices() (out []choice) {
+	for _, c := range choices() {
+		if c.telemetry {
+			out = append(out, c)
 		}
 	}
 	return out
@@ -237,6 +288,8 @@ var resourceOf = map[string][2]string{
 	"v1/ServiceAccount":                               {"", "serviceaccounts"},
 	"v1/Secret":                                       {"", "secrets"},
 	"v1/Service":                                      {"", "services"},
+	"v1/ConfigMap":                                    {"", "configmaps"},
+	"networking.k8s.io/v1/NetworkPolicy":              {"networking.k8s.io", "networkpolicies"},
 	"apps/v1/Deployment":                              {"apps", "deployments"},
 	"apps/v1/DaemonSet":                               {"apps", "daemonsets"},
 	"batch/v1/Job":                                    {"batch", "jobs"},
@@ -261,9 +314,9 @@ func (o object) namespace() string {
 // ---- the tests ----
 
 func TestTheControllerCanCreateChangeAndRemoveEveryObjectTheAgentChartMakes(t *testing.T) {
-	ctl := controllerPerms(t, helmObjects(t, controllerChart(), "--set", "maxAccessTier=2"))
+	ctl := controllerPerms(t, helmObjects(t, controllerChart(), "--set", "maxAccessTier=2", "--set", "allowTelemetry=true"))
 	for _, c := range choices() {
-		for _, o := range agentObjects(t, c.tier, c.nodeProbe, c.flow, c.measure, c.purge) {
+		for _, o := range agentObjects(t, c) {
 			res, ok := resourceOf[o.APIVersion+"/"+o.Kind]
 			if !ok {
 				t.Fatalf("the agent chart makes a %s/%s, and the controller's permissions do not say what to do about that kind: decide in templates/rbac.yaml, then name it in resourceOf", o.APIVersion, o.Kind)
@@ -275,7 +328,7 @@ func TestTheControllerCanCreateChangeAndRemoveEveryObjectTheAgentChartMakes(t *t
 			}
 			for _, v := range verbs {
 				if !anyAllows(rules, res[0], res[1], v, o.Metadata.Name) {
-					t.Errorf("tier %d probe=%v flow=%v measure=%v purge=%v: the controller cannot %s %s", c.tier, c.nodeProbe, c.flow, c.measure, c.purge, v, o)
+					t.Errorf("%s: the controller cannot %s %s", c, v, o)
 				}
 			}
 		}
@@ -283,16 +336,16 @@ func TestTheControllerCanCreateChangeAndRemoveEveryObjectTheAgentChartMakes(t *t
 }
 
 func TestTheControllerHoldsEverythingTheAgentsRolesGrantSoKubernetesLetsItCreateThem(t *testing.T) {
-	ctl := controllerPerms(t, helmObjects(t, controllerChart(), "--set", "maxAccessTier=2"))
+	ctl := controllerPerms(t, helmObjects(t, controllerChart(), "--set", "maxAccessTier=2", "--set", "allowTelemetry=true"))
 	for _, c := range choices() {
-		for _, o := range agentObjects(t, c.tier, c.nodeProbe, c.flow, c.measure, c.purge) {
+		for _, o := range agentObjects(t, c) {
 			if o.Kind != "Role" && o.Kind != "ClusterRole" {
 				continue
 			}
 			held := ctl.in(o.namespace())
 			for _, r := range o.Rules {
 				if m := missing(held, r); len(m) > 0 {
-					t.Errorf("tier %d: %s grants what the controller does not hold, so Kubernetes would refuse to create it: %v", c.tier, o, m)
+					t.Errorf("%s: %s grants what the controller does not hold, so Kubernetes would refuse to create it: %v", c, o, m)
 				}
 			}
 		}
@@ -305,7 +358,7 @@ func TestACeilingBelowTheTopLeavesTheControllerUnableToCreateTheTiersAboveIt(t *
 		ctl := controllerPerms(t, helmObjects(t, controllerChart(), "--set", fmt.Sprintf("maxAccessTier=%d", ceiling)))
 		for tier := 0; tier <= 2; tier++ {
 			var unheld []string
-			for _, o := range agentObjects(t, tier, false, false, false, false) {
+			for _, o := range agentObjects(t, choice{tier: tier}) {
 				if o.Kind != "ClusterRole" {
 					continue
 				}
@@ -330,7 +383,7 @@ func TestTheControllerHoldsNothingThatNoRenderedObjectOrRoleAsksFor(t *testing.T
 	kinds := map[string]bool{}         // group/resource of every rendered kind
 	names := map[string]map[string]bool{}
 	for _, c := range choices() {
-		for _, o := range agentObjects(t, c.tier, c.nodeProbe, c.flow, c.measure, c.purge) {
+		for _, o := range agentObjects(t, c) {
 			res := resourceOf[o.APIVersion+"/"+o.Kind]
 			kinds[res[0]+"/"+res[1]] = true
 			if names[res[1]] == nil {
@@ -342,35 +395,37 @@ func TestTheControllerHoldsNothingThatNoRenderedObjectOrRoleAsksFor(t *testing.T
 	}
 	onlyTheControllers := map[string]bool{"ikhnos.io/ikhnosagents": true, "ikhnos.io/ikhnosagents/status": true}
 
-	for ceiling := 0; ceiling <= 2; ceiling++ {
-		objs := helmObjects(t, controllerChart(), "--set", fmt.Sprintf("maxAccessTier=%d", ceiling))
-		for _, o := range objs {
-			if o.Kind != "Role" && o.Kind != "ClusterRole" {
-				continue
-			}
-			for _, r := range o.Rules {
-				// A rule limited to names names only objects that are made, of one of the kinds it is for.
-				for _, n := range r.ResourceNames {
-					made, objectsMade := false, false
-					for _, g := range r.APIGroups {
-						for _, res := range r.Resources {
-							made = made || names[res][n]
-							objectsMade = objectsMade || kinds[g+"/"+res]
+	for _, withTelemetry := range []bool{false, true} {
+		for ceiling := 0; ceiling <= 2; ceiling++ {
+			objs := helmObjects(t, controllerChart(), "--set", fmt.Sprintf("maxAccessTier=%d", ceiling), "--set", fmt.Sprintf("allowTelemetry=%v", withTelemetry))
+			for _, o := range objs {
+				if o.Kind != "Role" && o.Kind != "ClusterRole" {
+					continue
+				}
+				for _, r := range o.Rules {
+					// A rule limited to names names only objects that are made, of one of the kinds it is for.
+					for _, n := range r.ResourceNames {
+						made, objectsMade := false, false
+						for _, g := range r.APIGroups {
+							for _, res := range r.Resources {
+								made = made || names[res][n]
+								objectsMade = objectsMade || kinds[g+"/"+res]
+							}
+						}
+						// (A name on a kind the chart does not make, such as kube-system, is an object that is already there.)
+						if objectsMade && !made {
+							t.Errorf("ceiling %d telemetry=%v: %s names %q on %v, which the agent chart never makes", ceiling, withTelemetry, o, n, r.Resources)
 						}
 					}
-					// (A name on a kind the chart does not make, such as kube-system, is an object that is already there.)
-					if objectsMade && !made {
-						t.Errorf("ceiling %d: %s names %q on %v, which the agent chart never makes", ceiling, o, n, r.Resources)
-					}
-				}
-				for _, g := range r.APIGroups {
-					for _, res := range r.Resources {
-						key := g + "/" + res
-						asked := kinds[key] || onlyTheControllers[key]
-						// What an agent role grants is held so that it can be created; that is a reason of its own.
-						held := len(missing(agentRules, rbacv1.PolicyRule{APIGroups: []string{g}, Resources: []string{res}, Verbs: r.Verbs, ResourceNames: r.ResourceNames})) == 0
-						if !asked && !held {
-							t.Errorf("ceiling %d: %s holds %v on %s and nothing the agent chart makes or grants asks for it", ceiling, o, r.Verbs, key)
+					for _, g := range r.APIGroups {
+						for _, res := range r.Resources {
+							key := g + "/" + res
+							asked := kinds[key] || onlyTheControllers[key]
+							// What an agent role grants is held so that it can be created; that is a reason of its own.
+							held := len(missing(agentRules, rbacv1.PolicyRule{APIGroups: []string{g}, Resources: []string{res}, Verbs: r.Verbs, ResourceNames: r.ResourceNames})) == 0
+							if !asked && !held {
+								t.Errorf("ceiling %d telemetry=%v: %s holds %v on %s and nothing the agent chart makes or grants asks for it", ceiling, withTelemetry, o, r.Verbs, key)
+							}
 						}
 					}
 				}
@@ -379,22 +434,77 @@ func TestTheControllerHoldsNothingThatNoRenderedObjectOrRoleAsksFor(t *testing.T
 	}
 }
 
-// What is read cluster-wide is exactly what the agent's ClusterRoles grant up to the ceiling, and no wider.
+// What is read cluster-wide is exactly what the agent's ClusterRoles grant up to the ceiling, and no wider: with telemetry allowed, those
+// of its collectors too; without, none of them.
 func TestTheControllersClusterWideReadsAreExactlyWhatTheAgentsClusterRolesGrant(t *testing.T) {
-	for ceiling := 0; ceiling <= 2; ceiling++ {
-		ctl := controllerPerms(t, helmObjects(t, controllerChart(), "--set", fmt.Sprintf("maxAccessTier=%d", ceiling)))
-		var agent []rbacv1.PolicyRule
-		for _, o := range agentObjects(t, ceiling, false, false, false, false) {
-			if o.Kind == "ClusterRole" {
-				agent = append(agent, o.Rules...)
+	for _, withTelemetry := range []bool{false, true} {
+		for ceiling := 0; ceiling <= 2; ceiling++ {
+			ctl := controllerPerms(t, helmObjects(t, controllerChart(), "--set", fmt.Sprintf("maxAccessTier=%d", ceiling), "--set", fmt.Sprintf("allowTelemetry=%v", withTelemetry)))
+			var agent []rbacv1.PolicyRule
+			renders := []choice{{tier: ceiling}}
+			if withTelemetry {
+				renders = append(renders, choice{tier: ceiling, telemetry: true})
+			}
+			for _, c := range renders {
+				for _, o := range agentObjects(t, c) {
+					if o.Kind == "ClusterRole" {
+						agent = append(agent, o.Rules...)
+					}
+				}
+			}
+			for _, r := range ctl.cluster {
+				if has(r.Resources, "clusterroles") || has(r.Resources, "clusterrolebindings") {
+					continue
+				}
+				if m := missing(agent, r); len(m) > 0 {
+					t.Errorf("ceiling %d telemetry=%v: the controller reads more cluster-wide than the agent's ClusterRoles grant: %v", ceiling, withTelemetry, m)
+				}
 			}
 		}
-		for _, r := range ctl.cluster {
-			if has(r.Resources, "clusterroles") || has(r.Resources, "clusterrolebindings") {
-				continue
+	}
+}
+
+// Telemetry is a ceiling of its own: a controller not given it cannot create the telemetry's ClusterRole, and one given it can; and
+// whichever it is, it can still remove the roles by name (so that taking telemetry off a release works), and holds nothing that is only
+// for telemetry's namespaced objects.
+func TestTelemetryIsACeilingOfItsOwnAndAControllerWithoutItCannotCreateWhatItNeeds(t *testing.T) {
+	without := controllerPerms(t, helmObjects(t, controllerChart(), "--set", "maxAccessTier=2"))
+	with := controllerPerms(t, helmObjects(t, controllerChart(), "--set", "maxAccessTier=2", "--set", "allowTelemetry=true"))
+	for _, c := range telemetryChoices() {
+		var needsTelemetry bool
+		for _, o := range agentObjects(t, c) {
+			res := resourceOf[o.APIVersion+"/"+o.Kind]
+			if o.Kind == "ClusterRole" {
+				for _, r := range o.Rules {
+					if len(missing(without.cluster, r)) > 0 {
+						needsTelemetry = true
+						if m := missing(with.cluster, r); len(m) > 0 {
+							t.Errorf("%s: with telemetry allowed the controller still lacks %v", c, m)
+						}
+					}
+				}
 			}
-			if m := missing(agent, r); len(m) > 0 {
-				t.Errorf("ceiling %d: the controller reads more cluster-wide than the agent's ClusterRoles grant: %v", ceiling, m)
+			if o.Kind == "ConfigMap" || o.Kind == "NetworkPolicy" {
+				needsTelemetry = true
+				if anyAllows(without.in(o.namespace()), res[0], res[1], "create", o.Metadata.Name) {
+					t.Errorf("%s: without telemetry the controller can create %s", c, o)
+				}
+				if !anyAllows(with.in(o.namespace()), res[0], res[1], "create", o.Metadata.Name) {
+					t.Errorf("%s: with telemetry the controller cannot create %s", c, o)
+				}
+			}
+		}
+		if !needsTelemetry {
+			t.Errorf("%s: nothing in this render needs the telemetry ceiling, so the test proves nothing", c)
+		}
+	}
+	// The roles can be removed by name whatever the ceiling.
+	for name, p := range map[string]perms{"without": without, "with": with} {
+		for _, role := range []string{"ikhnos-agent-telemetry", "ikhnos-agent-kepler", "ikhnos-agent-telemetry-" + ctlNamespace, "ikhnos-agent-kepler-" + ctlNamespace} {
+			for _, res := range []string{"clusterroles", "clusterrolebindings"} {
+				if !anyAllows(p.cluster, "rbac.authorization.k8s.io", res, "delete", role) {
+					t.Errorf("%s telemetry: the controller cannot delete %s %s", name, res, role)
+				}
 			}
 		}
 	}

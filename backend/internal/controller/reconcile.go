@@ -70,8 +70,12 @@ type Reconciler struct {
 	// permissions the controller was given: to create the agent's ClusterRoles it must hold what they grant (Kubernetes lets nobody
 	// hand out what they do not have), so a controller that is to install only tier 0 or 1 agents is given no more than those need.
 	MaxTier *int
-	Log     *slog.Logger
-	Now     func() time.Time
+	// AllowTelemetry is whether this controller was given the permissions the agent's telemetry needs (cluster-wide reads of what the
+	// collectors watch: allowTelemetry in its chart). A resource that turns a signal on is refused without it, for the same reason a tier
+	// above MaxTier is: Kubernetes would refuse to create the ClusterRole.
+	AllowTelemetry bool
+	Log            *slog.Logger
+	Now            func() time.Time
 }
 
 func (r *Reconciler) now() time.Time {
@@ -208,6 +212,9 @@ func (r *Reconciler) values(spec Spec, token string) (map[string]any, error) {
 	}
 	if spec.AccessTier != nil && *spec.AccessTier > r.ceiling() {
 		return nil, &install.ProblemsError{Problems: []string{fmt.Sprintf("spec.accessTier %d is above the %d this controller was given the permissions for (maxAccessTier in its chart)", *spec.AccessTier, r.ceiling())}}
+	}
+	if spec.AsksForTelemetry() && !r.AllowTelemetry {
+		return nil, &install.ProblemsError{Problems: []string{"spec.telemetry turns telemetry on, and this controller was not given the permissions for it (allowTelemetry in its chart)"}}
 	}
 	v, err := spec.Values(token)
 	if err != nil {

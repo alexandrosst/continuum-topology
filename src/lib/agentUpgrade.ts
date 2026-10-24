@@ -27,6 +27,17 @@ export interface CredentialSecretDoc {
   command: string
 }
 
+/** The same change as a patch of the IkhnosAgent resource, for an agent a controller keeps (a helm upgrade of such a release is undone). */
+export interface ControllerUpgradeDoc {
+  /** The whole block: the Secrets' commands first, then the patch. Empty when there is nothing to patch or the resource cannot state the settings. */
+  command: string
+  patch: string
+  /** The controller must have been installed with allowTelemetry for the resource to be accepted. */
+  needsTelemetryPermission: boolean
+  /** Why there is no patch for these settings. */
+  problems: string[]
+}
+
 /** What POST /commands/agent-upgrade answers. */
 export interface AgentUpgradeAnswer {
   /** The whole block to paste: the Secrets' commands first, then the upgrade. Empty when there are problems. */
@@ -36,6 +47,7 @@ export interface AgentUpgradeAnswer {
   secrets: CredentialSecretDoc[]
   /** What makes the telemetry unfit to write a command from. */
   problems: string[]
+  controller: ControllerUpgradeDoc
 }
 
 /** The request for a tier-only change or a telemetry change, from what the page holds. */

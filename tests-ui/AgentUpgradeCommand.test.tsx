@@ -16,7 +16,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return { ...actual, api: { ...actual.api, agentUpgradeCommand: (_c: unknown, req: AgentUpgradeRequest) => asked(req) } }
 })
 
-const answer = (command: string, problems: string[] = []): AgentUpgradeAnswer => ({ command, upgrade: command, secretCommand: '', secrets: [], problems })
+const answer = (command: string, problems: string[] = []): AgentUpgradeAnswer => ({ command, upgrade: command, secretCommand: '', secrets: [], problems, controller: { command: '', patch: '', needsTelemetryPermission: false, problems: [] } })
 
 function Probe({ request, id = 'cmd' }: { request: AgentUpgradeRequest | null; id?: string }) {
   return <ServerCommand command={useAgentUpgradeCommand(request)} testId={id} />

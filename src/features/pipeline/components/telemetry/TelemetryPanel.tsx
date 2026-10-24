@@ -1,9 +1,11 @@
+import clsx from 'clsx'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, ICON_SM, RunStep } from '@/components/ui/primitives'
 import { CopyCommand } from '@/components/ui/CopyCommand'
 import { ServerCommand } from '@/components/ui/ServerCommand'
 import ArrivalCheck from '@/features/pipeline/components/telemetry/ArrivalCheck'
+import { ControllerPatch } from '@/features/pipeline/components/telemetry/ControllerPatch'
 import GuidedWizard from '@/features/pipeline/components/telemetry/GuidedWizard'
 import { upgradeRequest, useAgentUpgradeCommand } from '@/lib/agentUpgrade'
 import { api, atLeast } from '@/lib/api'
@@ -161,6 +163,8 @@ function TelemetryPanelBody({
     [draft, hadTelemetry, measurementsOn, conn.org, clusterId, target],
   )
   const upgrade = useAgentUpgradeCommand(problems.length > 0 ? null : upgradeAsk)
+  // An agent that a controller keeps is changed in its resource, not by helm: the same change is offered in both words.
+  const [via, setVia] = useState<'helm' | 'controller'>('helm')
 
   // A regional operator destination: its receiver wants a client certificate only the server can issue, so
   // there is no ready command - only an explicit "Generate" that asks the server for one (and issues a new
@@ -331,7 +335,24 @@ function TelemetryPanelBody({
             {problems.length > 1 ? ` (and ${problems.length - 1} more)` : ''}.
           </p>
         ) : (
-          <ServerCommand command={upgrade} />
+          <>
+            <div className="mb-2 mt-2 flex gap-1 border-b border-nb-850" role="tablist" aria-label="How the agent is installed">
+              {([['helm', 'helm'], ['controller', 'kubectl (controller)']] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={via === id}
+                  onClick={() => setVia(id)}
+                  className={clsx('-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors', via === id ? 'border-accent text-nb-300' : 'border-transparent text-nb-400 hover:text-nb-300')}
+                  data-testid={`${p}-via-${id}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {via === 'helm' ? <ServerCommand command={upgrade} /> : <ControllerPatch command={upgrade} testId={`${p}-controller`} />}
+          </>
         )}
       </RunStep>
     </ol>

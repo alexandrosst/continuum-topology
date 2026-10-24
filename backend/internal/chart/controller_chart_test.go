@@ -92,6 +92,14 @@ func TestTheControllerChartDefaultsToTheTopCeilingAndTheEdgeTagIsAlwaysPulled(t 
 	if !strings.Contains(args, "--max-access-tier=2") {
 		t.Errorf("args %q", args)
 	}
+	// Telemetry is off unless it is asked for, and what it is set to is what the controller is told.
+	if !strings.Contains(args, "--allow-telemetry=false") {
+		t.Errorf("args %q do not say telemetry is off", args)
+	}
+	on := strings.Join(controllerDeployments(t, "--set", "allowTelemetry=true")[0].Spec.Template.Spec.Containers[0].Args, " ")
+	if !strings.Contains(on, "--allow-telemetry=true") {
+		t.Errorf("args %q", on)
+	}
 	if p := controllerDeployments(t, "--set", "image.tag=edge")[0].Spec.Template.Spec.Containers[0].ImagePullPolicy; p != corev1.PullAlways {
 		t.Errorf("edge is pulled %s", p)
 	}
@@ -112,6 +120,7 @@ func TestTheControllerChartRefusesWhatItCannotMean(t *testing.T) {
 	for _, c := range []struct{ name, set, want string }{
 		{"a tier that does not exist", "maxAccessTier=3", "maxAccessTier"},
 		{"a typo", "maxAcessTier=1", "additional properties"},
+		{"telemetry that is not a switch", "allowTelemetry=maybe", "allowTelemetry"},
 		{"a digest that is not one", "image.digest=latest", "digest"},
 	} {
 		out, err := exec.Command(h, "template", "ct", controllerChart(), "--set", c.set).CombinedOutput()

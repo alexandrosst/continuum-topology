@@ -31,6 +31,7 @@
       }
     },
     "maxAccessTier": {"type": "integer", "minimum": 0, "maximum": 2},
+    "allowTelemetry": {"type": "boolean"},
     "timeout": {"type": "string", "pattern": "^[0-9]+(ms|s|m|h)$"},
     "resources": {"type": "object"},
     "nodeSelector": {"type": "object"},

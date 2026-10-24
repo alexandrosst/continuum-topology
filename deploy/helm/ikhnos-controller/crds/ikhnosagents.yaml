@@ -121,6 +121,275 @@ spec:
                       type: string
                     digest:
                       type: string
+                telemetry:
+                  type: object
+                  description: >-
+                    What the agent collects and where it sends it, as the Telemetry panel sets it. It is all of the agent's telemetry (what it does not
+                    say is the chart's default), so without it the agent has none. The controller must have been given allowTelemetry. Extra processors
+                    and a regional operator as the destination are not here: use the helm command for those.
+                  properties:
+                    signals:
+                      type: object
+                      description: Each signal is off unless asked for.
+                      properties:
+                        resourceUsage: {type: boolean}
+                        energy: {type: boolean}
+                        kubernetesState: {type: boolean}
+                        nodeRuntime: {type: boolean}
+                        networkLatency: {type: boolean, description: Needs collectors.measurements.}
+                        clusterLinks: {type: boolean, description: Needs accessTier 2.}
+                        applicationMetrics: {type: boolean}
+                        systemLogs: {type: boolean}
+                        kubernetesEvents: {type: boolean}
+                        applicationLogs: {type: boolean}
+                        traces: {type: boolean}
+                        accelerators: {type: boolean}
+                    energy:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          description: bundle-kepler (the default) or existing.
+                          enum: [bundle-kepler, existing]
+                        endpoint:
+                          type: string
+                          description: host:port of the Kepler that already runs, when kind is existing.
+                    accelerators:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          description: bundle-dcgm (the default) or existing.
+                          enum: [bundle-dcgm, existing]
+                        endpoint:
+                          type: string
+                        applyScope:
+                          type: boolean
+                          description: Attach the pod and namespace using the GPU, so the namespace scope narrows GPU metrics too.
+                    clusterLinks:
+                      type: object
+                      properties:
+                        probe:
+                          type: boolean
+                          description: Runs the active probe (delay, jitter, loss, path size and route).
+                        throughput:
+                          type: boolean
+                          description: Also runs and answers throughput tests. Needs probe.
+                        authSecret:
+                          type: string
+                          description: A Secret of your own with iperf3's credentials. Empty, Ikhnos issues them.
+                    scopes:
+                      type: object
+                      properties:
+                        applicationMetrics:
+                          type: object
+                          properties:
+                            namespaces:
+                              type: array
+                              items:
+                                type: string
+                            exclude:
+                              type: array
+                              items:
+                                type: string
+                            workloads:
+                              type: array
+                              description: Inside a namespace, keep only the named workloads. A namespace listed with no names keeps nothing of it.
+                              items:
+                                type: object
+                                required: [namespace]
+                                properties:
+                                  namespace:
+                                    type: string
+                                  names:
+                                    type: array
+                                    items:
+                                      type: string
+                        applicationLogs:
+                          type: object
+                          properties:
+                            namespaces:
+                              type: array
+                              items:
+                                type: string
+                            exclude:
+                              type: array
+                              items:
+                                type: string
+                            workloads:
+                              type: array
+                              description: Inside a namespace, keep only the named workloads. A namespace listed with no names keeps nothing of it.
+                              items:
+                                type: object
+                                required: [namespace]
+                                properties:
+                                  namespace:
+                                    type: string
+                                  names:
+                                    type: array
+                                    items:
+                                      type: string
+                        traces:
+                          type: object
+                          properties:
+                            namespaces:
+                              type: array
+                              items:
+                                type: string
+                            exclude:
+                              type: array
+                              items:
+                                type: string
+                            workloads:
+                              type: array
+                              description: Inside a namespace, keep only the named workloads. A namespace listed with no names keeps nothing of it.
+                              items:
+                                type: object
+                                required: [namespace]
+                                properties:
+                                  namespace:
+                                    type: string
+                                  names:
+                                    type: array
+                                    items:
+                                      type: string
+                        infrastructure:
+                          type: boolean
+                          description: The infrastructure signals follow the scope the application signals combine to.
+                    destination:
+                      type: object
+                      description: Where telemetry goes. The credential is read from the Secret authSecret, never written here.
+                      properties:
+                        endpoint:
+                          type: string
+                          description: host:port, or a URL.
+                        protocol:
+                          type: string
+                          description: grpc (the default), http (both OTLP) or zipkin (spans only).
+                          enum: [grpc, http, zipkin]
+                        insecure:
+                          type: boolean
+                          description: Turns TLS verification off.
+                        authHeader:
+                          type: string
+                          description: The header the credential is sent in. Default Authorization.
+                        authSecret:
+                          type: string
+                          description: A Secret in this namespace that holds the credential.
+                        authKey:
+                          type: string
+                          description: The key of that Secret. Default token.
+                    routes:
+                      type: object
+                      description: Send each kind of signal to a destination of its own, instead of everything to destination.
+                      properties:
+                        split:
+                          type: boolean
+                        metrics:
+                          type: object
+                          description: Where telemetry goes. The credential is read from the Secret authSecret, never written here.
+                          properties:
+                            endpoint:
+                              type: string
+                              description: host:port, or a URL.
+                            protocol:
+                              type: string
+                              description: grpc (the default), http (both OTLP) or zipkin (spans only).
+                              enum: [grpc, http, zipkin]
+                            insecure:
+                              type: boolean
+                              description: Turns TLS verification off.
+                            authHeader:
+                              type: string
+                              description: The header the credential is sent in. Default Authorization.
+                            authSecret:
+                              type: string
+                              description: A Secret in this namespace that holds the credential.
+                            authKey:
+                              type: string
+                              description: The key of that Secret. Default token.
+                        logs:
+                          type: object
+                          description: Where telemetry goes. The credential is read from the Secret authSecret, never written here.
+                          properties:
+                            endpoint:
+                              type: string
+                              description: host:port, or a URL.
+                            protocol:
+                              type: string
+                              description: grpc (the default), http (both OTLP) or zipkin (spans only).
+                              enum: [grpc, http, zipkin]
+                            insecure:
+                              type: boolean
+                              description: Turns TLS verification off.
+                            authHeader:
+                              type: string
+                              description: The header the credential is sent in. Default Authorization.
+                            authSecret:
+                              type: string
+                              description: A Secret in this namespace that holds the credential.
+                            authKey:
+                              type: string
+                              description: The key of that Secret. Default token.
+                        traces:
+                          type: object
+                          description: Where telemetry goes. The credential is read from the Secret authSecret, never written here.
+                          properties:
+                            endpoint:
+                              type: string
+                              description: host:port, or a URL.
+                            protocol:
+                              type: string
+                              description: grpc (the default), http (both OTLP) or zipkin (spans only).
+                              enum: [grpc, http, zipkin]
+                            insecure:
+                              type: boolean
+                              description: Turns TLS verification off.
+                            authHeader:
+                              type: string
+                              description: The header the credential is sent in. Default Authorization.
+                            authSecret:
+                              type: string
+                              description: A Secret in this namespace that holds the credential.
+                            authKey:
+                              type: string
+                              description: The key of that Secret. Default token.
+                    processing:
+                      type: object
+                      properties:
+                        resourceDetection:
+                          type: boolean
+                        redaction:
+                          type: boolean
+                          description: Masks values of keys that look like secrets before anything leaves the cluster.
+                        tracesSamplingPercent:
+                          type: number
+                          description: The share of traces kept. Default 100.
+                          minimum: 0
+                          maximum: 100
+                        debug:
+                          type: string
+                          description: Writes what passed to the collector's own log.
+                          enum: [basic, detailed]
+                        tags:
+                          type: array
+                          description: Labels put on everything the agent emits.
+                          items:
+                            type: object
+                            required: [key, value]
+                            properties:
+                              key:
+                                type: string
+                              value:
+                                type: string
+                    owner:
+                      type: object
+                      description: Who the telemetry belongs to, stamped on everything as ikhnos.org.id and ikhnos.cluster.id.
+                      properties:
+                        orgId:
+                          type: string
+                        clusterId:
+                          type: string
             status:
               type: object
               properties:

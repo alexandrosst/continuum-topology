@@ -142,6 +142,10 @@ func walk(t *testing.T, path string, schema map[string]any, typ reflect.Type) {
 		if want != "integer" {
 			t.Errorf("%s: schema type %q, Go integer", path, want)
 		}
+	case reflect.Float64:
+		if want != "number" {
+			t.Errorf("%s: schema type %q, Go number", path, want)
+		}
 	default:
 		t.Errorf("%s: no rule for %s", path, typ.Kind())
 	}
@@ -197,5 +201,39 @@ func TestTheSchemaNamesEveryPhaseTheControllerWritesAndNoMore(t *testing.T) {
 	sort.Strings(cs)
 	if want := []string{"False", "True", "Unknown"}; !reflect.DeepEqual(cs, want) {
 		t.Fatalf("condition statuses %v, want %v", cs, want)
+	}
+}
+
+// What the schema allows of the telemetry is what the install package accepts: a word the schema lets through that the agent would refuse
+// is a resource that is created and then marked Invalid, which is the thing a schema is there to stop.
+func TestTheSchemaOfTheTelemetryAllowsTheWordsTheAgentAcceptsAndNoOthers(t *testing.T) {
+	spec, _, _, _ := loadCRD(t)
+	words := func(path ...string) []string {
+		var out []string
+		for _, e := range dig(t, spec, append([]string{"properties", "telemetry", "properties"}, append(path, "enum")...)...).([]any) {
+			out = append(out, e.(string))
+		}
+		sort.Strings(out)
+		return out
+	}
+	for name, c := range map[string]struct {
+		got  []string
+		want []string
+	}{
+		"destination.protocol":    {words("destination", "properties", "protocol"), []string{"grpc", "http", "zipkin"}},
+		"routes.metrics.protocol": {words("routes", "properties", "metrics", "properties", "protocol"), []string{"grpc", "http", "zipkin"}},
+		"routes.logs.protocol":    {words("routes", "properties", "logs", "properties", "protocol"), []string{"grpc", "http", "zipkin"}},
+		"routes.traces.protocol":  {words("routes", "properties", "traces", "properties", "protocol"), []string{"grpc", "http", "zipkin"}},
+		"energy.kind":             {words("energy", "properties", "kind"), []string{"bundle-kepler", "existing"}},
+		"accelerators.kind":       {words("accelerators", "properties", "kind"), []string{"bundle-dcgm", "existing"}},
+		"processing.debug":        {words("processing", "properties", "debug"), []string{"basic", "detailed"}},
+	} {
+		if !reflect.DeepEqual(c.got, c.want) {
+			t.Errorf("%s: the schema allows %v, the agent accepts %v", name, c.got, c.want)
+		}
+	}
+	pct := dig(t, spec, "properties", "telemetry", "properties", "processing", "properties", "tracesSamplingPercent").(map[string]any)
+	if pct["minimum"] != float64(0) || pct["maximum"] != float64(100) {
+		t.Errorf("tracesSamplingPercent is bounded %v..%v", pct["minimum"], pct["maximum"])
 	}
 }

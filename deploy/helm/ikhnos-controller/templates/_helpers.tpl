@@ -22,12 +22,18 @@ Always
 IfNotPresent
 {{- end -}}
 {{- end -}}
-{{/* The names of the agent chart's cluster-scoped objects, which are fixed by that chart: a role per tier and its binding in a namespace. */}}
+{{/* The names of the agent chart's cluster-scoped objects, which are fixed by that chart: a role per tier and its binding in a namespace,
+     and the roles of the telemetry's collectors and of Kepler (named whether or not allowTelemetry is on, so that the controller can still
+     remove them when telemetry is taken off). */}}
 {{- define "controller.agentClusterNames" -}}
 {{- $ns := .Release.Namespace -}}
 {{- range $t := until 3 }}
 - ikhnos-agent-t{{ $t }}
 - ikhnos-agent-t{{ $t }}-{{ $ns }}
+{{- end }}
+{{- range $r := list "telemetry" "kepler" }}
+- ikhnos-agent-{{ $r }}
+- ikhnos-agent-{{ $r }}-{{ $ns }}
 {{- end }}
 {{- end -}}
 {{- define "controller.validate" -}}
