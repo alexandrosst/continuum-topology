@@ -16,10 +16,11 @@
 </p>
 
 <p align="center">
-  <a href="https://alexandrosst.github.io/ikhnos/getting-started/quickstart"><b>Quickstart</b></a> ·
-  <a href="https://alexandrosst.github.io/ikhnos/">Documentation</a> ·
-  <a href="https://alexandrosst.github.io/ikhnos/architecture/overview">Architecture</a> ·
-  <a href="https://alexandrosst.github.io/ikhnos/project/roadmap">Roadmap</a> ·
+  <a href="https://alexandrosst.github.io/ikhnos/docs/getting-started/quickstart"><b>Quickstart</b></a> ·
+  <a href="https://alexandrosst.github.io/ikhnos/docs/">Documentation</a> ·
+  <a href="https://alexandrosst.github.io/ikhnos/docs/journey/">Your first hour</a> ·
+  <a href="https://alexandrosst.github.io/ikhnos/docs/inside/">How it is built</a> ·
+  <a href="https://alexandrosst.github.io/ikhnos/docs/project/roadmap">Roadmap</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
@@ -77,7 +78,7 @@ Most placement tools give you an answer. Ikhnos gives you the answer, how much t
   </picture>
 </p>
 
-The advisor is **pluggable**. Any HTTP service that speaks the [decider webhook](backend/docs/decider-webhook.openapi.yaml) is scored against the built-in *Baseline* and *Follow the heaviest talker* on the same estate, which makes Ikhnos a testbed for your own placement policy, heuristic or learned. The cost function's exact formulas are in [`backend/docs/advice.md`](backend/docs/advice.md); what is still missing for research use is on the [roadmap](https://alexandrosst.github.io/ikhnos/project/roadmap).
+The advisor is **pluggable**. Any HTTP service that speaks the [decider webhook](backend/docs/decider-webhook.openapi.yaml) is scored against the built-in *Baseline* and *Follow the heaviest talker* on the same estate, which makes Ikhnos a testbed for your own placement policy, heuristic or learned. The cost function's exact formulas are in [`backend/docs/advice.md`](backend/docs/advice.md); what is still missing for research use is on the [roadmap](https://alexandrosst.github.io/ikhnos/docs/project/roadmap).
 
 ## How it works
 
@@ -99,7 +100,7 @@ The **agent** is one small pod per cluster. It authenticates with a certificate 
   </picture>
 </p>
 
-More: [system overview](https://alexandrosst.github.io/ikhnos/architecture/overview), [agent trust model](https://alexandrosst.github.io/ikhnos/architecture/agent-trust-model) and [system memory](https://alexandrosst.github.io/ikhnos/architecture/system-memory).
+The documentation draws each of these in more detail: [how it works in ten minutes](https://alexandrosst.github.io/ikhnos/docs/learn/how-it-works) for the idea, and [Inside Ikhnos](https://alexandrosst.github.io/ikhnos/docs/inside/) for the layers of the server, the agent's stream, the model, advice and the decision loop.
 
 ## Quickstart
 
@@ -127,7 +128,7 @@ kubectl -n ikhnos logs deployment/ikhnos-server | grep -A2 'First start'
 kubectl -n ikhnos port-forward service/ikhnos-server 8080:8080   # https://localhost:8080
 ```
 
-Sign in as `admin`, choose a real password, then use **Connect a cluster**: it prints the `helm install` for the agent with its token and the server's CA pin already filled in. Keep a copy of the sealing key outside the cluster; it protects the secrets stored in the server's database. The full walk-through, including a load balancer or Gateway for real use, is in the [quickstart](https://alexandrosst.github.io/ikhnos/getting-started/quickstart) and the [production guide](https://alexandrosst.github.io/ikhnos/installation/production-cluster).
+Sign in as `admin`, choose a real password, then use **Connect a cluster**: it prints the `helm install` for the agent with its token and the server's CA pin already filled in. Keep a copy of the sealing key outside the cluster; it protects the secrets stored in the server's database. The full walk-through, including a load balancer or Gateway for real use, is in the [quickstart](https://alexandrosst.github.io/ikhnos/docs/getting-started/quickstart) and the [production guide](https://alexandrosst.github.io/ikhnos/docs/installation/production-cluster).
 
 **Just want to look around?** The UI runs on its own, with a made-up cloud, edge and far-edge estate and no server:
 
@@ -138,28 +139,26 @@ npm install && npm run dev        # http://localhost:5173
 
 ## Documentation
 
-Everything lives on the [documentation site](https://alexandrosst.github.io/ikhnos/); its sources are in [`docs-site/docs`](docs-site/docs) and read fine on GitHub.
+The [documentation site](https://alexandrosst.github.io/ikhnos/docs/) is written for three readers. Its sources are in [`docs-site/docs`](docs-site/docs) and read fine on GitHub.
 
-| I want to... | Read |
+| I am... | Start with |
 |---|---|
-| Get a server running in five minutes | [Quickstart](https://alexandrosst.github.io/ikhnos/getting-started/quickstart) |
-| Connect a cluster, understand the approval code | [Connecting a cluster](https://alexandrosst.github.io/ikhnos/installation/connecting-a-cluster) |
-| Run it for real (DNS, TLS, exposure options) | [Production cluster](https://alexandrosst.github.io/ikhnos/installation/production-cluster) |
-| Understand the design and the trust model | [Architecture](https://alexandrosst.github.io/ikhnos/architecture/overview) |
-| Learn the UI | [User guide](https://alexandrosst.github.io/ikhnos/user-guide/using-the-ui) |
-| Look up a Helm value, a flag or a decider contract | [Reference](https://alexandrosst.github.io/ikhnos/reference/) |
-| Fix something that went wrong | [Troubleshooting](https://alexandrosst.github.io/ikhnos/troubleshooting/common-errors) |
-| Work on the code | [Developer guide](https://alexandrosst.github.io/ikhnos/contributing/developer-guide) |
+| New to Ikhnos and want to know what it is | [What is Ikhnos?](https://alexandrosst.github.io/ikhnos/docs/learn/what-is-ikhnos), then [How it works in ten minutes](https://alexandrosst.github.io/ikhnos/docs/learn/how-it-works) |
+| Ready to try it, and have never seen it | [Your first hour](https://alexandrosst.github.io/ikhnos/docs/journey/): seven steps from nothing to your first advice, with what you should see after each |
+| Running it for real | [Production cluster](https://alexandrosst.github.io/ikhnos/docs/installation/production-cluster), [Connecting a cluster](https://alexandrosst.github.io/ikhnos/docs/installation/connecting-a-cluster), [Troubleshooting](https://alexandrosst.github.io/ikhnos/docs/troubleshooting/common-errors) |
+| Looking something up | [Using the interface](https://alexandrosst.github.io/ikhnos/docs/user-guide/using-the-ui), [Reference](https://alexandrosst.github.io/ikhnos/docs/reference/): Helm values, flags and the decider contract |
+| Reading or changing the code | [Inside Ikhnos](https://alexandrosst.github.io/ikhnos/docs/inside/), then the [developer guide](https://alexandrosst.github.io/ikhnos/docs/contributing/developer-guide) |
+| Deciding whether to depend on it | [Status and limits](https://alexandrosst.github.io/ikhnos/docs/project/status-and-limits) and the [roadmap](https://alexandrosst.github.io/ikhnos/docs/project/roadmap) |
 
 ## Status
 
 Ikhnos is **pre-1.0**. It discovers and advises; it never deploys or moves anything. It has been tested end to end on k3s, with real eBPF programs against real loopback traffic, and under `-race`. It has **not** been run on a production cluster, with two live clusters, or against a running service mesh; EKS, GKE and AKS are expected to work and untested. The placement weights are a starting point, not a calibrated model.
 
-The full, itemised account of what was and was not verified, and what is not built (OIDC, ambient-mesh attribution and more), is on [Status and limits](https://alexandrosst.github.io/ikhnos/project/status-and-limits). Please read it before depending on this.
+The full, itemised account of what was and was not verified, and what is not built (OIDC, ambient-mesh attribution and more), is on [Status and limits](https://alexandrosst.github.io/ikhnos/docs/project/status-and-limits). Please read it before depending on this.
 
 ## Contributing
 
-Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has the short version; the [developer guide](https://alexandrosst.github.io/ikhnos/contributing/developer-guide) has the rest.
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has the short version; the [developer guide](https://alexandrosst.github.io/ikhnos/docs/contributing/developer-guide) has the rest.
 
 ```bash
 npm install && npm run lint && npm run test:unit && npm run test:ui && npm run build   # frontend

@@ -80,7 +80,7 @@ func TestHostUnreachableHintMatchesTheActualErrorSeenInProduction(t *testing.T) 
 	if !strings.Contains(full, wantSubstr) {
 		t.Fatalf("expected the assembled message to contain %q, got %q", wantSubstr, full)
 	}
-	if !strings.Contains(full, "https://alexandrosst.github.io/ikhnos/troubleshooting/common-errors") {
+	if !strings.Contains(full, "https://alexandrosst.github.io/ikhnos/docs/troubleshooting/common-errors") {
 		t.Fatalf("expected the assembled message to link the troubleshooting doc, got %q", full)
 	}
 }

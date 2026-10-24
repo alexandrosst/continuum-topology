@@ -3,7 +3,7 @@
 A standalone OTel Collector that aggregates telemetry a set of already-approved clusters' own
 `ikhnos-agent` releases already export, and re-exports it as one stream. One Deployment, one image,
 no RBAC and no channel to the Ikhnos server at all — see
-[Regional operators](https://alexandrosst.github.io/ikhnos/architecture/regional-operators)
+[Regional operators](https://alexandrosst.github.io/ikhnos/docs/architecture/regional-operators)
 for the full architecture and why those boundaries are deliberate.
 
 This file is the chart's own reference material: everything that doesn't change between installs. What
@@ -223,6 +223,6 @@ own `telemetry.export.otlp.endpoint` is changed.
 
 `export.otlp.endpoint` can point at another regional operator's receiver address, but the Ikhnos server
 refuses to create or update an operator whose `Destination` names another operator (`DestinationKind:
-"operator"`) — see [Regional operators § How one is created](https://alexandrosst.github.io/ikhnos/architecture/regional-operators#how-one-is-created).
+"operator"`) — see [Regional operators § How one is created](https://alexandrosst.github.io/ikhnos/docs/architecture/regional-operators#how-one-is-created).
 This is a deliberate, named gap, not an oversight: the mechanism exists, the decision layer that should
 pick a fleet's topology does not, yet.

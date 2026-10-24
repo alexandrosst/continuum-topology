@@ -20,7 +20,7 @@ import { useRawTopology } from '@/store/topology'
 
 // Published by .github/workflows/docs.yml from docs-site/ — see its "Release process" page for the one-time
 // GitHub Pages setting that publishing depends on.
-const DOCS_URL = 'https://alexandrosst.github.io/ikhnos/'
+const DOCS_URL = 'https://alexandrosst.github.io/ikhnos/docs/'
 
 type NavEntry = { to: string; label: string; icon: typeof Network }
 

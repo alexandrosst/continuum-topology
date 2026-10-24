@@ -1,6 +1,6 @@
 # Contributing to Ikhnos
 
-Thank you for looking. Issues, questions and pull requests are all welcome. This is the short version; the [developer guide](https://alexandrosst.github.io/ikhnos/contributing/developer-guide) (sources in [`docs-site/docs/contributing`](docs-site/docs/contributing/developer-guide.md)) covers building, running an agent without a cluster, and where things live.
+Thank you for looking. Issues, questions and pull requests are all welcome. This is the short version; the [developer guide](https://alexandrosst.github.io/ikhnos/docs/contributing/developer-guide) (sources in [`docs-site/docs/contributing`](docs-site/docs/contributing/developer-guide.md)) covers building, running an agent without a cluster, and where things live.
 
 ## Before you start
 

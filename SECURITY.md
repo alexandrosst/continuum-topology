@@ -20,7 +20,7 @@ Out of scope: third-party software the chart can bundle (Neo4j, Prometheus, Loki
 
 ## How the design limits the damage
 
-These are properties of the design, not guarantees; each is covered by tests and described in the [documentation](https://alexandrosst.github.io/ikhnos/architecture/trust-model):
+These are properties of the design, not guarantees; each is covered by tests and described in the [documentation](https://alexandrosst.github.io/ikhnos/docs/architecture/trust-model):
 
 - The agent is read-only and never reads Secrets or ConfigMaps. The server holds no kubeconfig and never connects into a cluster.
 - Agents authenticate with 24-hour client certificates over mutual TLS 1.3, issued after a one-time token **and** an approval code that only appears in the cluster's own pod log.
