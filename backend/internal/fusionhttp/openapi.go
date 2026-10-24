@@ -131,6 +131,9 @@ func OpenAPI(ops []Op) obj {
 			"responses": obj{"200": ok, "400": obj{"$ref": "#/components/responses/BadRequest"}, "401": obj{"$ref": "#/components/responses/Unauthorized"},
 				"403": obj{"$ref": "#/components/responses/Forbidden"}, "429": obj{"$ref": "#/components/responses/TooManyRequests"},
 				"503": obj{"$ref": "#/components/responses/Unavailable"}, "504": obj{"$ref": "#/components/responses/Timeout"}}}
+		if names404(op) {
+			o["responses"].(obj)["404"] = obj{"$ref": "#/components/responses/NotFound"}
+		}
 		if op.Description != "" {
 			o["description"] = op.Description
 		}
@@ -153,6 +156,7 @@ func OpenAPI(ops []Op) obj {
 				"**Reading many.** `GET /traces?fused=true` and `POST /traces/batch` read up to 25 traces in parallel inside a bounded share of the stores' capacity, so they do not hold up other reads; add `stream=true` to receive each trace as soon as it is ready.\n\n" +
 				"**The backends' own APIs.** `/prometheus/...`, `/loki/...` and `/tempo/...` serve each backend's read endpoints exactly as it answers them (same paths after the prefix, same format), so a Grafana datasource, `promtool` or `logcli` pointed at `/api/v1/fusion/prometheus` (or `/loki`, `/tempo`) with the token works unchanged. Nothing that writes or administers a backend is served. Only an administrator, or a token with no namespace or cluster limit, may use them.\n\n" +
 				"**Limits.** 600 reads a minute per credential (a bulk read of n traces counts as n), 30 seconds per request and 10 seconds per call to a store, 16 MiB per store answer. A fused read whose store is too slow still returns what the other stores answered; the part that did not make it is `error` in `sources`, with the reason in `warnings`."},
+		"x-guide":  guide(),
 		"servers":  []obj{{"url": "/"}},
 		"tags":     tags,
 		"security": []obj{{"bearerAuth": []string{}}},
@@ -164,12 +168,18 @@ func OpenAPI(ops []Op) obj {
 				"BadRequest":      errResp("The request is wrong; the message says how."),
 				"Unauthorized":    errResp("No valid credential."),
 				"Forbidden":       errResp("The credential may not read this: its signals, namespaces or clusters do not include it, or it is not an administrator."),
-				"TooManyRequests": errResp("Slow down; see the Retry-After header."),
-				"Unavailable":     errResp("FUSION is off, or the store is still starting."),
+				"TooManyRequests": errResp("Slow down: the credential's reads per minute are used (the Retry-After header says how many seconds to wait), or there were too many failed sign-ins from this address (wait a minute)."),
+				"NotFound":        errResp("No such application, service or trace, or none this credential may see."),
+				"Unavailable":     errResp("FUSION is off or still starting, or a store cannot be reached. Try again in a few seconds."),
 				"Timeout":         errResp("The stores took too long; narrow the time range or the filters."),
 			},
 		},
 	}
+}
+
+// names404 is whether a route can answer "no such ...": it names one thing in its path (an application, a service, a trace) or filters by an application.
+func names404(op Op) bool {
+	return slices.Contains(op.PathParams, "name") || slices.Contains(op.PathParams, "id") || slices.Contains(op.Params, "application")
 }
 
 // OperationID is the operationId the description gives a route.

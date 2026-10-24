@@ -14,18 +14,54 @@
   // The theme the person chose in the app (the same key, so the two agree); with none chosen the system's preference decides, in CSS.
   try { var th = localStorage.getItem('ikhnos:theme'); if (th === 'light' || th === 'dark') document.documentElement.setAttribute('data-theme', th); } catch (e) { /* storage can be blocked */ }
 
-  // A very small inline renderer for the description: paragraphs, **bold** and `code`.
+  // A very small inline renderer for the description: paragraphs, **bold**, `code` and [text](#anchor) (a link inside the page, nothing else).
   function inline(parent, text) {
-    var re = /(\*\*[^*]+\*\*|`[^`]+`)/g, last = 0, m;
+    var re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(#[A-Za-z0-9_-]+\))/g, last = 0, m;
     while ((m = re.exec(text))) {
       if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
-      var t = m[0];
-      parent.appendChild(t[0] === '*' ? el('strong', null, t.slice(2, -2)) : el('code', null, t.slice(1, -1)));
+      var t = m[0], a;
+      if (t[0] === '[') { var k = t.indexOf(']('); a = el('a', null, t.slice(1, k)); a.href = t.slice(k + 2, -1); parent.appendChild(a); }
+      else parent.appendChild(t[0] === '*' ? el('strong', null, t.slice(2, -2)) : el('code', null, t.slice(1, -1)));
       last = m.index + t.length;
     }
     if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
   }
   function para(parent, text) { text.split(/\n\n+/).forEach(function (p) { var e = el('p'); inline(e, p); parent.appendChild(e); }); }
+
+  // The guide's text: paragraphs, "### " headings, "- " lists, "|" tables and ``` blocks.
+  function blocks(parent, text) {
+    var lines = text.split('\n'), i = 0;
+    while (i < lines.length) {
+      var l = lines[i];
+      if (/^\s*$/.test(l)) { i++; continue; }
+      if (l.indexOf('```') === 0) {
+        var code = []; i++;
+        while (i < lines.length && lines[i].indexOf('```') !== 0) code.push(lines[i++]);
+        i++; parent.appendChild(el('pre', 'out', code.join('\n'))); continue;
+      }
+      if (l.indexOf('### ') === 0) { parent.appendChild(el('h3', null, l.slice(4))); i++; continue; }
+      if (l.indexOf('- ') === 0) {
+        var ul = el('ul');
+        while (i < lines.length && lines[i].indexOf('- ') === 0) { var li = el('li'); inline(li, lines[i].slice(2)); ul.appendChild(li); i++; }
+        parent.appendChild(ul); continue;
+      }
+      if (l.charAt(0) === '|') {
+        var tb = el('table', 'guide-table'), body = el('tbody'), first = true;
+        while (i < lines.length && lines[i].charAt(0) === '|') {
+          if (!/^[\s|:-]+$/.test(lines[i])) {
+            var tr = el('tr'), cells = lines[i].replace(/^\||\|\s*$/g, '').split(' | ');
+            cells.forEach(function (c) { var td = el(first ? 'th' : 'td'); inline(td, c.trim()); tr.appendChild(td); });
+            if (first) { var th = el('thead'); th.appendChild(tr); tb.appendChild(th); first = false; } else body.appendChild(tr);
+          }
+          i++;
+        }
+        tb.appendChild(body); parent.appendChild(wrapTable(tb)); continue;
+      }
+      var p = [];
+      while (i < lines.length && !/^\s*$/.test(lines[i]) && lines[i].indexOf('```') !== 0 && lines[i].indexOf('### ') !== 0 && lines[i].indexOf('- ') !== 0 && lines[i].charAt(0) !== '|') p.push(lines[i++]);
+      var pe = el('p'); inline(pe, p.join(' ')); parent.appendChild(pe);
+    }
+  }
 
   function authHeaders(extra) {
     var h = Object.assign({}, extra || {});
@@ -416,12 +452,28 @@
   var slug = function (t) { return t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); };
   var short = function (path) { return path.replace('/api/v1/fusion', ''); };
 
+  // The lede, then what is not one route: the overview (the rest of the description) and the sections of the guide, each opened by its link.
+  function renderGuide(nav, open) {
+    var paras = (SPEC.info.description || '').split(/\n\n+/), intro = $('intro');
+    var lede = el('p', 'lede'); inline(lede, paras[0] || ''); intro.appendChild(lede);
+    var secs = [{ id: 'overview', title: 'Overview', text: paras.slice(1).join('\n\n') }].concat((SPEC['x-guide'] || []).map(function (g) { return { id: g.id, title: g.title, text: g.body }; }));
+    var gnav = el('details'); gnav.open = open;
+    gnav.appendChild(el('summary', null, 'Guide'));
+    secs.forEach(function (x) {
+      var d = el('details', 'guide'); d.id = 'guide-' + x.id;
+      d.appendChild(el('summary', null, x.title));
+      var b = el('div', 'gbody'); blocks(b, x.text); d.appendChild(b); intro.appendChild(d);
+      var a = el('a', null, x.title); a.href = '#' + d.id; a.addEventListener('click', function () { setTimeout(openFromHash, 0); }); gnav.appendChild(a);
+    });
+    nav.appendChild(gnav);
+  }
+
   function render() {
     document.title = SPEC.info.title;
     $('title').textContent = SPEC.info.title;
     $('version').textContent = 'v' + SPEC.info.version;
-    para($('intro'), SPEC.info.description || '');
     var nav = $('nav'), ops = $('ops'), byTag = {};
+    renderGuide(nav, !(window.matchMedia && window.matchMedia('(max-width:800px)').matches));
     var narrow = window.matchMedia && window.matchMedia('(max-width:800px)').matches;
     Object.keys(SPEC.paths).forEach(function (path) {
       Object.keys(SPEC.paths[path]).forEach(function (method) {
