@@ -326,6 +326,16 @@ func names(l []string) string {
 // Targets are the ids that events about the application are about: itself, its services and the links it shows.
 func (t *AppTopology) Targets() []string { return t.ids }
 
+// TargetsFor are the ids to read events about for a caller with Scope s. The application's own events say which services it
+// gained and lost, by id and by name, and an application holds services a limited caller may not see (another namespace, another
+// cluster), so a limited caller is given the events about the services and links it can see, and not the application's.
+func (t *AppTopology) TargetsFor(s Scope) []string {
+	if s.Unrestricted() || len(t.ids) == 0 {
+		return t.ids
+	}
+	return t.ids[1:] // ids[0] is the application itself (BuildAppTopology)
+}
+
 // MaxAppChanges is the most events one answer carries.
 const MaxAppChanges = maxAppChanges
 

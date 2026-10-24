@@ -184,7 +184,7 @@ func (g *Guard) AppTopology(w http.ResponseWriter, r *http.Request, c *fusionapi
 		snap := v.At
 		t.Source, t.AsOf, t.SnapshotAt = "history", at, &snap
 	}
-	evs, err := ex.Changes(r.Context(), until.Add(-window), until, nil, t.Targets(), fusionapi.MaxAppChanges+1)
+	evs, err := ex.Changes(r.Context(), until.Add(-window), until, nil, t.TargetsFor(who.Scope), fusionapi.MaxAppChanges+1)
 	if err != nil {
 		g.Err(w, err)
 		return
