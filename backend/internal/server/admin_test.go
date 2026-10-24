@@ -543,3 +543,25 @@ func TestOfflineRecoveryResetsOrCreatesAnAccount(t *testing.T) {
 		t.Errorf("recovery of an unknown account should create it without any organisation: %+v %v %v", u, orgs, err)
 	}
 }
+
+// Every answer names its request, so that a person who reads "internal error" on a screen can give the line that explains it. A
+// caller's own id is kept when it is plain enough to put in a log, and replaced when it is not; a browser on another origin may read it.
+func TestEveryAnswerCarriesARequestID(t *testing.T) {
+	a := newAdminRig(t)
+	one := a.do("GET", "/api/v1/server", nil).Header().Get("X-Request-Id")
+	two := a.do("GET", "/api/v1/server", nil).Header().Get("X-Request-Id")
+	if len(one) != 16 || one == two {
+		t.Fatalf("generated ids = %q, %q", one, two)
+	}
+	if got := a.do("GET", "/api/v1/server", nil, withHeader("X-Request-Id", "proxy-7f3a9c2e")).Header().Get("X-Request-Id"); got != "proxy-7f3a9c2e" {
+		t.Errorf("a plain caller id was not kept: %q", got)
+	}
+	for _, bad := range []string{"short", "has space in it", "line\nbreak-injection", strings.Repeat("a", 65), "semi;colon;inside"} {
+		if got := a.do("GET", "/api/v1/server", nil, withHeader("X-Request-Id", bad)).Header().Get("X-Request-Id"); got == bad || len(got) != 16 {
+			t.Errorf("an id that should not be kept (%q) became %q", bad, got)
+		}
+	}
+	if got := a.do("GET", "/api/v1/nowhere", nil).Header().Get("X-Request-Id"); got == "" {
+		t.Error("an unknown path was answered without an id")
+	}
+}

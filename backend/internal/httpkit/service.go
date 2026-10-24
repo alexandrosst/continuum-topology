@@ -86,7 +86,8 @@ func Fail(w http.ResponseWriter, log *slog.Logger, err error) {
 		WriteErr(w, code, e.Msg)
 		return
 	}
-	log.Error("admin request failed", "err", err)
+	// The answer says "internal error" and nothing more; the request id (set by the server on every answer) is how the line below is found from it.
+	log.Error("admin request failed", "err", err, "request_id", w.Header().Get("X-Request-Id"))
 	WriteErr(w, http.StatusInternalServerError, "internal error")
 }
 

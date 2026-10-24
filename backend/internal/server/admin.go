@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -232,9 +235,27 @@ const apiCSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; for
 const permissionsPolicy = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), " +
 	"accelerometer=(), gyroscope=(), magnetometer=(), midi=(), display-capture=(), interest-cohort=()"
 
+// requestIDHeader names a request in the answer and in the log, so that "it said internal error at 14:02" can be matched to the line that
+// says what the error was. A caller (a proxy, a script) may name its own request; what it names is kept only if it is plain enough to put in a log.
+const requestIDHeader = "X-Request-Id"
+
+var plainRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{8,64}$`)
+
+func requestID(r *http.Request) string {
+	if id := r.Header.Get(requestIDHeader); plainRequestID.MatchString(id) {
+		return id
+	}
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "unknown"
+	}
+	return hex.EncodeToString(b[:])
+}
+
 func (a *Admin) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
+		h.Set(requestIDHeader, requestID(r))
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
@@ -264,6 +285,7 @@ func (a *Admin) cors(next http.Handler) http.Handler {
 					h.Set("Access-Control-Allow-Origin", o)
 					h.Set("Access-Control-Allow-Credentials", "true")
 					h.Set("Access-Control-Allow-Headers", "Content-Type, X-Requested-With, If-Match")
+					h.Set("Access-Control-Expose-Headers", requestIDHeader)
 					h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 					h.Add("Vary", "Origin")
 				}

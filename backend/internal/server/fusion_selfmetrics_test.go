@@ -17,7 +17,6 @@ import (
 	"ikhnos/internal/testkit"
 )
 
-
 func reading(agent, cluster string, at time.Time, rss uint64) estate.SelfReading {
 	return estate.SelfReading{AgentID: agent, ClusterID: cluster, At: at, Sample: estate.SelfTelemetrySample{RSSBytes: rss, Goroutines: 7, CPUPct: ptr(3.5)}}
 }

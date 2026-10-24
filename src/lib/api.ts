@@ -15,10 +15,13 @@ export class ApiError extends Error {
   status: number
   /** The parsed JSON body of an error response, when there was one (a 409 carries the current revision). */
   body?: Record<string, unknown>
-  constructor(status: number, message: string, body?: Record<string, unknown>) {
+  /** The server's name for the request that failed (the X-Request-Id of its answer): what to give whoever reads the server's log. */
+  requestId?: string
+  constructor(status: number, message: string, body?: Record<string, unknown>, requestId?: string) {
     super(message)
     this.status = status
     this.body = body
+    this.requestId = requestId
   }
 }
 
@@ -282,7 +285,12 @@ async function call<T>(c: Conn, method: string, path: string, body?: unknown, he
   }
   if (res.status === 204) return undefined as T
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `Request failed (${res.status})`, data as Record<string, unknown>)
+  if (!res.ok) {
+    const requestId = res.headers.get('X-Request-Id') ?? undefined
+    const said = (data as { error?: string }).error ?? `Request failed (${res.status})`
+    // A failure of the server's own ("internal error") says nothing a person can act on; the reference is what finds its line in the log.
+    throw new ApiError(res.status, res.status >= 500 && requestId ? `${said} (reference ${requestId})` : said, data as Record<string, unknown>, requestId)
+  }
   return data as T
 }
 
