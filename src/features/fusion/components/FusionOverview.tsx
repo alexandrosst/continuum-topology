@@ -1,13 +1,14 @@
 import clsx from 'clsx'
-import { CircleCheck } from 'lucide-react'
+import { CircleCheck, ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { type useFusion } from '@/features/fusion/components/useFusion'
 import { FusionSection, ROWS } from '@/features/fusion/components/FusionSection'
 import { StatusChip } from '@/features/fusion/components/StatusChip'
 import { DiskBar, FillsIn } from '@/features/fusion/components/StoreBars'
 import { buttonClass } from '@/components/ui/buttonClass'
-import { Button, CopyButton, ICON_MD, Waiting } from '@/components/ui/primitives'
+import { Button, CopyButton, ICON_MD, ICON_SM, Waiting } from '@/components/ui/primitives'
 import { type FusionComponent, type FusionRetention } from '@/lib/api'
+import { DASHBOARD_GROUPS, DASHBOARDS } from '@/features/fusion/lib/dashboards'
 import { fusionSentence, type FusionProblem, partHealth } from '@/features/fusion/lib/fusionStatus'
 
 const PART_NOTE: Record<FusionComponent['component'], string> = {
@@ -28,7 +29,7 @@ function Action({ problem, onRefresh }: { problem: FusionProblem; onRefresh: () 
 
 /** What needs attention first, then what FUSION is made of. Problems are derived from what the server reports (see fusionProblems); each one
  *  says what is wrong in a sentence and has one thing to do about it. */
-export function FusionOverview({ fusion, problems, retention, now }: { fusion: ReturnType<typeof useFusion>; problems: FusionProblem[]; retention: FusionRetention | null; now: number }) {
+export function FusionOverview({ fusion, problems, retention, now, onOpenDashboard }: { fusion: ReturnType<typeof useFusion>; problems: FusionProblem[]; retention: FusionRetention | null; now: number; /** Opens one of the shipped Grafana dashboards, by uid, in a new tab. */ onOpenDashboard?: (uid: string) => void }) {
   const status = fusion.status!
   const sentence = fusionSentence(status, now)
   const parts = status.components ?? []
@@ -92,6 +93,36 @@ export function FusionOverview({ fusion, problems, retention, now }: { fusion: R
               )}
             </p>
           )}
+        </FusionSection>
+      )}
+
+      {onOpenDashboard && status.links?.grafana && (
+        <FusionSection title="Dashboards" description="They come with FUSION and read what it holds. They open in Grafana through this server, with your sign-in." testId="fusion-dashboards">
+          <div className="space-y-5">
+            {DASHBOARD_GROUPS.map((g) => (
+              <div key={g}>
+                <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-nb-500">{g}</h3>
+                <ul className="grid gap-2 sm:grid-cols-2" data-testid={`fusion-dashboards-${g.toLowerCase()}`}>
+                  {DASHBOARDS.filter((d) => d.group === g).map((d) => (
+                    <li key={d.uid}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenDashboard(d.uid)}
+                        className="group flex h-full w-full items-start justify-between gap-3 rounded-xl border border-nb-850 bg-nb-925 px-4 py-3 text-left transition-[border-color,transform] duration-[var(--dur-fast)] hover:-translate-y-px hover:border-nb-700 focus-visible:outline-2 focus-visible:outline-accent"
+                        data-testid={`fusion-dashboard-${d.uid}`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium text-nb-300">{d.title}</span>
+                          <span className="mt-0.5 block text-xs text-nb-500">{d.about}</span>
+                        </span>
+                        <ExternalLink size={ICON_SM} className="mt-0.5 shrink-0 text-nb-600 transition-colors group-hover:text-accent" aria-hidden />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </FusionSection>
       )}
     </>

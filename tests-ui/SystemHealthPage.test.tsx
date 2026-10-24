@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import SystemHealthPage from '@/features/health/SystemHealthPage'
 import type { SelfTelemetryEntity } from '@/lib/selfHealth'
 
+vi.mock('react-router-dom', () => ({ Link: ({ to, children, className }: { to: string; children: React.ReactNode; className?: string }) => <a href={to} className={className}>{children}</a> }))
+let fusionStatus: { links?: { grafana?: string } } | null = null
+const openPage = vi.fn()
+vi.mock('@/features/fusion/components/useFusion', () => ({ useFusion: () => ({ status: fusionStatus }) }))
+vi.mock('@/features/fusion/components/OpenPages', () => ({ useOpenPage: () => ({ open: openPage, opening: false, error: '' }), OpenError: () => null }))
 const selfTelemetry = vi.fn<[], Promise<SelfTelemetryEntity[]>>()
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -10,8 +15,8 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return { ...actual, api: { ...actual.api, selfTelemetry: (...a: unknown[]) => selfTelemetry(...(a as [])) } }
 })
 vi.mock('@/store/server', () => ({
-  useServer: (selector?: (s: { status: string }) => unknown) => {
-    const state = { status: 'connected' }
+  useServer: (selector?: (s: { status: string; isAdmin: () => boolean }) => unknown) => {
+    const state = { status: 'connected', isAdmin: () => true }
     return selector ? selector(state) : state
   },
   useConn: () => ({ url: '', org: 'o' }),
@@ -218,5 +223,22 @@ describe('SystemHealthPage - polling', () => {
     unmount()
     await tick(60_000)
     expect(selfTelemetry).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the way to Grafana', () => {
+  beforeEach(() => { selfTelemetry.mockResolvedValue([]); openPage.mockClear() })
+  test('without Grafana the page points at FUSION and keeps the figures', async () => {
+    fusionStatus = null
+    render(<SystemHealthPage />)
+    expect(await screen.findByTestId('health-in-grafana')).toHaveTextContent('Turn FUSION on')
+    expect(screen.queryByTestId('health-open-grafana')).toBeNull()
+    expect(await screen.findByText('Nothing sampled yet')).toBeInTheDocument()
+  })
+  test('with Grafana up the button opens the Ikhnos self dashboard', async () => {
+    fusionStatus = { links: { grafana: '/fusion/grafana/' } }
+    render(<SystemHealthPage />)
+    ;(await screen.findByTestId('health-open-grafana')).click()
+    expect(openPage).toHaveBeenCalledWith('grafana', { dashboard: 'ikhnos-self' })
   })
 })

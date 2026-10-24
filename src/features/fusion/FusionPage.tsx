@@ -102,7 +102,7 @@ export default function FusionPage() {
         !error && <div className="space-y-3" role="status" aria-label="Checking FUSION"><SkeletonBlock className="h-16 w-full" /><SkeletonBlock className="h-40 w-full" /></div>
       ) : (
         <Routes>
-          <Route index element={running(<FusionOverview fusion={fusion} problems={problems} retention={retention.doc} now={now} />)} />
+          <Route index element={running(<FusionOverview fusion={fusion} problems={problems} retention={retention.doc} now={now} onOpenDashboard={(uid) => void page.open('grafana', { dashboard: uid })} />)} />
           <Route path="data" element={running(status.data ? <FusionData /> : null)} />
           <Route
             path="access"

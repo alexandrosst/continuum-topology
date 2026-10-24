@@ -1,9 +1,52 @@
+import { ChartLine, ExternalLink } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import EntityHealthCard from '@/features/health/components/EntityHealthCard'
-import { EmptyState, ErrorBanner, PageHeader, SkeletonBlock, SkeletonLines } from '@/components/ui/primitives'
+import { buttonClass } from '@/components/ui/buttonClass'
+import { EmptyState, ErrorBanner, ICON_SM, PageHeader, SkeletonBlock, SkeletonLines } from '@/components/ui/primitives'
+import { OpenError, useOpenPage } from '@/features/fusion/components/OpenPages'
+import { useFusion } from '@/features/fusion/components/useFusion'
 import { api, type Conn } from '@/lib/api'
 import { entityLabel, type SelfTelemetryEntity } from '@/lib/selfHealth'
 import { useConn, useServer } from '@/store/server'
+
+/**
+ * System health has a dashboard of its own in Grafana now ("Ikhnos self": the server, and every cluster's agent by name, with history and
+ * the moments agents joined or left). This is the way there, and what is below it is the same figures as they are right now, for a server
+ * with no FUSION to draw them.
+ */
+function InGrafana() {
+  const admin = useServer((s) => s.isAdmin())
+  const fusion = useFusion(admin)
+  const page = useOpenPage()
+  const up = !!fusion.status?.links?.grafana
+  return (
+    <section className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-nb-850 bg-nb-925 px-5 py-4" data-testid="health-in-grafana">
+      <div className="flex min-w-0 items-start gap-3">
+        <ChartLine size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium text-nb-300">History and comparison are in Grafana</h2>
+          <p className="mt-0.5 max-w-2xl text-sm text-nb-500">
+            {up
+              ? 'The “Ikhnos self” dashboard draws the server and every cluster’s agent over time, by cluster name, and marks the moments agents joined or left.'
+              : admin
+                ? 'The “Ikhnos self” dashboard comes with FUSION. Turn FUSION on, and this page links to it.'
+                : 'The “Ikhnos self” dashboard comes with FUSION; an administrator can open it.'}
+          </p>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {admin && !up && <Link to="/fusion" className={buttonClass('secondary')}>Go to FUSION</Link>}
+        {up && (
+          <button type="button" className={buttonClass('primary')} disabled={page.opening} onClick={() => void page.open('grafana', { dashboard: 'ikhnos-self' })} data-testid="health-open-grafana">
+            <ExternalLink size={ICON_SM} aria-hidden /> Open “Ikhnos self”
+          </button>
+        )}
+      </div>
+      {page.error && <div className="w-full"><OpenError message={page.error} /></div>}
+    </section>
+  )
+}
 
 // Diagnostic, not primary, data - a touch coarser than HistoryPage's own 15s poll (itself already coarser
 // than the main topology poll's 2-5s - see Layout.tsx's useServerPolling) felt like the right convention
@@ -64,10 +107,12 @@ function Connected({ conn }: { conn: Conn }) {
   return (
     <>
       <PageHeader
-        title="System Health"
-        description="What running Ikhnos itself costs, in your own clusters: each agent's and the server's own memory, goroutines and CPU, plus network and power share where the hardware exposes them. Nothing here is synthetic - a metric this hardware can't report stays visibly unavailable rather than showing a guess."
+        title="System health"
+        description="What running Ikhnos itself costs, in your own clusters: the server's and each agent's memory, goroutines and CPU, plus network and power share where the hardware exposes them. A figure this hardware can't report stays visibly unavailable rather than showing a guess."
       />
+      <InGrafana />
       {error && <ErrorBanner className="mb-4">{error}</ErrorBanner>}
+      <h2 className="mb-3 text-sm font-medium text-nb-300">Right now</h2>
       {entities === null ? (
         <div className="flex flex-col gap-6" aria-busy>
           {[0, 1].map((i) => (
